@@ -1,0 +1,42 @@
+/*
+
+    Dias a aplicar para retroactivos
+
+*/
+                                     
+DEF INPUT PARAM t_f1 AS DATE NO-UNDO.
+DEF INPUT PARAM t_f2 AS DATE NO-UNDO.
+DEF OUTPUT PARAM t_dias AS INT NO-UNDO.
+
+DEF VAR t_a1 AS INT NO-UNDO.
+DEF VAR t_a2 AS INT NO-UNDO.
+DEF VAR t_m1 AS INT NO-UNDO.
+DEF VAR t_m2 AS INT NO-UNDO.
+DEF VAR t_d1 AS INT NO-UNDO.
+DEF VAR t_d2 AS INT NO-UNDO.
+
+DEF VAR t_i AS INT NO-UNDO.
+DEF VAR t_j AS INT NO-UNDO.
+DEF VAR t_k AS INT NO-UNDO.
+
+    t_a1 = YEAR(t_f1).
+    t_a2 = YEAR(t_f2).
+    t_dias = 0.
+    DO t_i = t_a1 TO t_a2.
+        t_m1 = 1.
+        t_m2 = 12.
+        IF t_i = t_a1 THEN t_m1 = MONTH(t_f1).
+        IF t_i = t_a2 THEN t_m2 = MONTH(t_f2).
+        DO t_j = t_m1 TO t_m2.
+            t_d1 = 1.
+            t_d2 = 30.
+            IF t_j = t_m1 AND t_i = t_a1  THEN t_d1 = DAY(t_f1).
+            IF t_j = t_m2 AND t_i = t_a2 THEN t_d2 = DAY(t_f2).
+            DO t_k = t_d1 TO t_d2.
+                t_dias = t_dias + 1.
+            END.
+        END.
+    END.
+    t_dias = t_dias - 1.
+
+

@@ -1,0 +1,161 @@
+/*
+
+    Calcula dias trabajados en un bimestre
+
+
+*/
+
+
+DEF INPUT PARAM t_n_trab AS INT NO-UNDO.
+DEF INPUT PARAM t_f_ing AS DATE NO-UNDO.
+DEF INPUT PARAM t_anio_bus AS INT NO-UNDO.
+DEF INPUT PARAM t_mes_acumula AS INT NO-UNDO.
+DEF INPUT PARAM t_sdi AS DEC NO-UNDO.
+DEF OUTPUT PARAM t_retiro_p AS DEC NO-UNDO.
+DEF OUTPUT PARAM t_ces_p AS DEC NO-UNDO.
+DEF OUTPUT PARAM t_ces_t AS DEC NO-UNDO.
+DEF OUTPUT PARAM t_infon AS DEC NO-UNDO.
+
+
+DEF VAR t_n_faltas AS INT NO-UNDO.
+DEF VAR t_f_ini AS DATE NO-UNDO.
+DEF VAR t_f_fin AS DATE NO-UNDO.
+DEF VAR t_van AS INT NO-UNDO.
+DEF VAR t_idx AS INT NO-UNDO.
+DEF VAR t_limite AS INT NO-UNDO.
+DEF VAR t_fw AS DATE NO-UNDO.
+DEF VAR t_suma AS INT EXTENT 3 NO-UNDO.
+DEF VAR t_dias_llevo AS INT NO-UNDO.
+DEF VAR t_mes AS INT NO-UNDO.
+DEF VAR t_n_incapac AS INT NO-UNDO.
+DEF VAR t_n_dias AS INT NO-UNDO.
+
+DEF TEMP-TABLE w_falta
+        FIELD f_falta AS DATE.
+
+DEF TEMP-TABLE wrk
+        FIELD mes AS INT
+        FIELD qna AS INT
+        FIELD faltas_1 AS INT
+        FIELD faltas_2 AS INT
+        FIELD faltas_3 AS INT
+        FIELD faltas AS INT
+        FIELD n_licencias AS INT
+        FIELD n_incapac_sg AS INT
+        FIELD dias_inc_emp AS INT
+        FIELD dias_inc_imss AS INT.
+{dias.i}.
+
+t_mes = t_mes_acumula - 2.
+
+IF t_mes < 0 THEN DO:
+    t_mes = 11.
+    t_anio_bus = t_anio_bus - 1.
+END.
+IF t_anio_bus / 4 = INT(t_anio_bus / 4) THEN t_dias[2] = 29.
+
+t_f_ini = DATE(t_mes, 1, t_anio_bus).
+t_f_fin = DATE(t_mes + 1, t_dias[t_mes + 1], t_anio_bus).
+IF t_f_ing > t_f_ini THEN t_f_ini = t_f_ing.
+
+RUN licencias.
+RUN faltas.
+/*t_n_dias = t_dias[t_mes] + t_dias[t_mes + 1].*/
+
+DO t_fw = t_f_ini TO t_f_fin.
+    t_n_dias = t_n_dias + 1.
+END.
+
+RUN importes.
+
+PROCEDURE importes.
+    t_retiro_p = t_sdi * (t_n_dias - t_n_faltas) * .02.
+    t_ces_p = t_sdi * (t_n_dias - t_n_faltas - t_n_incapac) * .0315.
+    t_ces_t = t_sdi * (t_n_dias - t_n_faltas - t_n_incapac) * .01125.
+    t_infon = t_sdi * (t_n_dias - t_n_faltas) * .05.
+END.
+
+PROCEDURE licencias.
+    FOR EACH licencia NO-LOCK WHERE 
+             licencia.id_trab = t_n_trab AND
+             licencia.f_inicio <= t_f_fin AND
+             licencia.f_termino >= t_f_ini.
+        t_van = 0.
+        t_idx = 1.
+        /*MESSAGE t_idx licencia.dias[t_idx] VIEW-AS ALERT-BOX.*/
+        t_limite = licencia.dias[t_idx].
+        DO t_fw = licencia.f_ini TO licencia.f_term.
+            IF t_fw > t_f_fin THEN LEAVE.
+            IF t_van >= t_limite THEN DO:
+                t_idx = t_idx + 1.
+                t_van = 0.
+                t_limite = licencia.dias[t_idx].
+            END.
+            IF t_van >= t_limite THEN DO:
+                t_idx = t_idx + 1.
+                t_van = 0.
+                t_limite = licencia.dias[t_idx].
+            END.
+            /*MESSAGE t_fw t_van t_idx t_limite VIEW-AS ALERT-BOX.*/
+            IF t_fw >= t_f_ini THEN DO.
+                IF t_fw >= t_f_ini AND t_fw <= t_f_fin THEN
+                    t_suma[t_idx] = t_suma[t_idx] + 1.
+                t_dias_llevo = t_dias_llevo + 1.
+            END.
+            t_van = t_van + 1.
+        END.
+    END.
+    t_n_incapac = t_suma[1] + t_suma[2] + t_suma[3].
+
+    /* t_suma[1] Paga Empresa */
+    /* t_suma[2] Paga IMSS */
+    /* t_suma[3] Sin Goce */
+END.
+
+PROCEDURE faltas.
+    FOR EACH incidencia WHERE 
+        incidencia.id_trab = t_n_trab AND 
+        incidencia.f_incid >= t_f_ini AND 
+        incidencia.f_incid <= t_f_fin NO-LOCK,
+        EACH tipo_incidencia OF incidencia NO-LOCK WHERE 
+             tipo_incidencia.provoca <> 'NA'
+        BREAK BY incidencia.f_incidencia.
+
+        IF incidencia.id_tipo_incidencia = 'F' THEN DO: /* Si es falta checa si no la tiene ya */
+            FIND w_falta WHERE
+                 w_falta.f_falta = incidencia.f_incidencia NO-LOCK NO-ERROR.
+            IF AVAILABLE w_falta THEN NEXT.
+            CREATE w_falta.
+            w_falta.f_falta = incidencia.f_incidencia.
+        END.
+
+        t_idx = 1.
+        IF DAY(incidencia.f_incidencia) > 15 THEN t_idx = 2.
+        FIND wrk WHERE
+             wrk.mes = MONTH(f_incidencia) AND
+             wrk.qna = t_idx NO-ERROR.
+        IF NOT AVAILABLE wrk THEN DO:
+            CREATE wrk.
+            ASSIGN wrk.mes = MONTH(f_incidencia) 
+                   wrk.qna = t_idx.
+        END.
+        IF tipo_incidencia.provoca = 'falta' THEN
+            wrk.faltas = wrk.faltas + 1.
+        IF tipo_incidencia.provoca = 'castigo' THEN DO:
+            IF tipo_incidencia.generan_falta = 1 THEN wrk.faltas_1 = wrk.faltas_1 + 1.
+            IF tipo_incidencia.generan_falta = 2 THEN wrk.faltas_2 = wrk.faltas_2 + 1.
+            IF tipo_incidencia.generan_falta = 3 THEN wrk.faltas_3 = wrk.faltas_3 + 1.
+        END.
+        IF tipo_incidencia.provoca = 'licencia'  THEN DO:
+            IF tipo_incidencia.porc_descto > 0 THEN wrk.n_licencias = wrk.n_licencias + 1.
+        END.
+    END.
+
+    t_n_faltas = 0.
+
+    FOR EACH wrk.
+        wrk.faltas_2 = TRUNCATE(wrk.faltas_2 / 2, 0).
+        wrk.faltas_3 = TRUNCATE(wrk.faltas_3 / 3, 0).
+        t_n_faltas = t_n_faltas + wrk.faltas + wrk.faltas_1 + wrk.faltas_2 + wrk.faltas_3.
+    END.
+END.

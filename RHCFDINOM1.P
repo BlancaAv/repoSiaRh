@@ -1,0 +1,527 @@
+/*
+
+      Timbrado de nómina 
+    
+*/
+
+DEF INPUT PARAM t_id_trab AS INT NO-UNDO.
+DEF INPUT PARAM t_anio_nom AS INT NO-UNDO.
+DEF INPUT PARAM t_n_nom AS DEC NO-UNDO.
+    
+DEF SHARED VAR vg_prod AS LOG NO-UNDO.
+
+DEF VAR t_ok AS LOG NO-UNDO.
+DEF VAR t_cuantos AS INT NO-UNDO.
+DEF VAR t_hoy AS CHAR NO-UNDO.
+DEF VAR t_suma_p AS DEC NO-UNDO.
+DEF VAR t_suma_d AS DEC NO-UNDO.
+DEF VAR t_suma_isr AS DEC NO-UNDO.
+DEF VAR t_neto AS DEC NO-UNDO.
+DEF VAR t_nom_trab AS CHAR NO-UNDO.
+DEF VAR t_todo AS CHAR NO-UNDO.
+DEF VAR t_rfc AS CHAR NO-UNDO.
+DEF VAR t_cert AS CHAR NO-UNDO.
+DEF VAR t_txt AS CHAR NO-UNDO.
+DEF VAR t_txt1 AS CHAR NO-UNDO.
+DEF VAR t_tp_cto AS CHAR NO-UNDO.
+DEF VAR t_sindicato AS CHAR NO-UNDO.
+DEF VAR t_sdi AS DEC NO-UNDO.
+DEF VAR t_nom_txt AS CHAR NO-UNDO.
+DEF VAR t_val_char AS CHAR NO-UNDO.
+DEF VAR t_arch AS CHAR NO-UNDO.
+DEF VAR t_pasada AS LOG NO-UNDO.
+DEF VAR t_uuid AS CHAR NO-UNDO.
+DEF VAR t_FechaTimbrado AS CHAR NO-UNDO.
+DEF VAR t_RfcProvCertif AS CHAR NO-UNDO.
+DEF VAR t_SelloCFD AS CHAR NO-UNDO.
+DEF VAR t_NoCertificadoSAT AS CHAR NO-UNDO.
+DEF VAR t_SelloSAT AS CHAR NO-UNDO.
+DEF VAR t_total_deducciones AS CHAR NO-UNDO.
+{vars.i}.
+
+FUNCTION fd RETURNS CHAR
+      ( INPUT val_dec AS DEC)  FORWARD.
+
+DEF VAR t_file AS CHAR NO-UNDO.
+t_file = "w:\data\tgm\exe\prod_cert.txt".
+IF vg_prod = FALSE THEN t_file = "w:\data\tgm\exe\test_cert.txt".
+
+DEFINE TEMP-TABLE wrk
+    FIELD tipo_concepto AS CHAR
+    FIELD id_sat AS INT
+    FIELD importe AS DEC
+    FIELD gravable AS DEC
+    FIELD exento AS DEC
+    INDEX wrk_k tipo_concepto id_sat.
+
+DEF VAR t_txt_percep AS CHAR NO-UNDO.
+DEF VAR t_txt_deduc AS CHAR NO-UNDO.
+
+t_nom_txt = STRING(t_anio_nom) + STRING(t_n_nom * 100,'9999') + '_' + STRING(t_id_trab,'99999').
+
+DEF VAR t_f AS DATE NO-UNDO.
+t_f = TODAY.
+t_hoy = STRING(YEAR(t_f)) + '-' + STRING(MONTH(t_f),'99') + '-' + STRING(DAY(t_f),'99') + 'T' + STRING(time,"HH:MM:SS").
+
+FIND trabajador WHERE
+     trabajador.id_trab = t_id_trab NO-LOCK.
+FIND beneficiario 908 NO-LOCK.  /* Trae del sia a TGM  */
+
+FIND parametro 'RFC' NO-LOCK.
+t_rfc = parametro.val_param.
+
+FIND parametro 'RH Cert' NO-LOCK.
+t_cert = parametro.val_param.
+
+FIND calendario_nomina NO-LOCK WHERE
+    calendario_nomina.anio_nom = t_anio_nom AND 
+    calendario_nomina.n_nomina = t_n_nom.
+
+/*      Lee Importes    */
+FOR EACH nomina_det OF calendario_nomina WHERE
+         nomina_det.id_trab = trabajador.id_trab NO-LOCK, 
+    EACH concepto OF nomina_det NO-LOCK WHERE
+         concepto.Absorve_Empresa = FALSE AND
+         concepto.id_sat > 0
+    BREAK BY nomina_det.id_trabajador.
+    IF FIRST-OF(nomina_det.id_trabajador) THEN DO:
+        FOR EACH wrk.
+            DELETE wrk.
+        END.
+    END.
+
+    FIND Trabajador OF Nomina_det NO-LOCK.
+
+    IF concepto.id_concepto BEGINS 'P' THEN
+        t_suma_p = t_suma_p + nomina_det.importe.
+    ELSE
+        t_suma_d = t_suma_d + nomina_det.importe.
+    IF concepto.es_isr THEN DO:
+        IF concepto.id_concepto BEGINS 'P' THEN
+            t_suma_isr = t_suma_isr - nomina_det.importe.
+        ELSE
+            t_suma_isr = t_suma_isr + nomina_det.importe.
+    END.
+    FIND wrk WHERE
+         wrk.tipo_concepto = concepto.tipo_concepto AND
+         wrk.id_sat = concepto.id_sat NO-ERROR.
+
+    IF NOT AVAILABLE wrk THEN DO:
+        CREATE wrk.
+        ASSIGN wrk.tipo_concepto = concepto.tipo_concepto
+               wrk.id_sat = concepto.id_sat.
+    END.
+    IF concepto.id_concepto BEGINS 'P' THEN DO: 
+        IF concepto.gravable THEN wrk.gravable = wrk.gravable + nomina_det.importe.
+        ELSE wrk.exento = wrk.exento + nomina_det.importe.
+    END.
+    wrk.importe = wrk.importe + nomina_det.importe.
+
+    IF LAST-OF(nomina_det.id_trabajador) THEN DO:
+        FIND nomina_enc OF nomina_det.
+        FIND area OF nomina_enc NO-LOCK.
+        FIND puesto OF nomina_enc NO-LOCK.
+        FIND Trabajador OF Nomina_det NO-LOCK.
+        t_nom_trab = TRIM(trabajador.nombre + ' ' + trabajador.ape_pat).
+        t_nom_trab = TRIM(t_nom_trab + ' ' + trabajador.ape_mat).
+        
+        RUN imprime.
+        RUN cadena_sello.
+        RUN incorpora_sello.
+        t_suma_p = 0.
+        t_suma_d = 0.
+        t_suma_isr = 0.
+        RUN timbra.
+        RUN checa_result.
+        IF t_ok THEN RUN regreso.
+        LEAVE.
+    END.
+END.
+RETURN.
+
+/*------------------ Checa resultado ----------*/
+PROCEDURE checa_result.
+    t_ok = FALSE.
+    t_txt = ''.
+    t_arch = 'c:\tgm_sia\CFDI\wrk\' + t_nom_txt + '_err.txt'.
+    IF SEARCH (t_arch) <> ? THEN DO:
+        INPUT FROM VALUE(t_arch) BINARY NO-CONVERT.
+        IMPORT UNFORMATTED t_txt.
+        FIND CURRENT nomina_enc.
+        ASSIGN nomina_enc.uuid = t_txt
+               nomina_enc.f_timbrado = ''
+               nomina_enc.rfc_prov = ''
+               nomina_enc.n_cert_sat = ''
+               nomina_enc.sello_sat = ''
+               nomina_enc.sello_emis = ''.
+        INPUT CLOSE.
+    END.
+    ELSE
+        t_ok = TRUE.
+END.
+
+
+/*-------------------------------------------------------*/
+PROCEDURE cadena_sello.
+    DEF VAR t_txt1 AS CHAR NO-UNDO.
+    DEF VAR t_txt2 AS CHAR NO-UNDO.
+    t_txt1 = 'openssl dgst -sign  Prod_llave.txt -sha256 -out C:\Tgm_Sia\CFDI\wrk\Prod_SelloBin.txt '.
+    IF vg_prod = FALSE THEN t_txt1 = 'openssl dgst -sign  Test_Llave.txt -sha256 -out C:\Tgm_Sia\CFDI\wrk\Test_SelloBin.txt '.
+
+    t_txt2 = 'openssl enc -base64 -in C:\Tgm_Sia\CFDI\wrk\Prod_SelloBin.txt -out C:\Tgm_Sia\CFDI\wrk\Prod_Sello.txt'.
+    IF vg_prod = FALSE THEN t_txt2 = 'openssl enc -base64 -in C:\Tgm_Sia\CFDI\wrk\Test_SelloBin.txt -out C:\Tgm_Sia\CFDI\wrk\Test_Sello.txt'.
+    
+    t_arch = 'c:\tgm_sia\CFDI\wrk\Prod_cadena_sello.bat'.
+    IF vg_prod = FALSE THEN t_arch = 'c:\tgm_sia\CFDI\wrk\Test_cadena_sello.bat'.
+    OUTPUT TO value(t_arch).
+
+    t_txt = 'C:\Tgm_Sia\CFDI\wrk\' + t_nom_txt + '_cadena.txt'.
+    PUT UNFORMATTED 'C:' SKIP
+                    'CD C:\Tgm_Sia\CFDI\wrk' SKIP
+                    'W:' SKIP
+                    'CD \DATA\TGM\EXE' SKIP
+                    'Crea_Cadena ' t_nom_txt SKIP
+                    t_txt1 t_txt SKIP
+                    t_txt2 SKIP
+                    'EXIT' SKIP.
+    OUTPUT CLOSE.
+    OS-COMMAND SILENT VALUE(t_arch).
+END.
+
+PROCEDURE timbra.
+    t_arch = 'c:\tgm_sia\CFDI\wrk\timbra.bat'.
+    OUTPUT TO value(t_arch).
+    PUT UNFORMATTED 'C:' SKIP
+                    'CD C:\Tgm_Sia\CFDI\wrk' SKIP
+                    'W:' SKIP
+                    'CD \DATA\TGM\EXE' SKIP
+                    'consumo_ws1 ' + STRING(vg_prod,'P/T') + t_nom_txt SKIP
+                    'EXIT' SKIP.
+    OUTPUT CLOSE.
+    OS-COMMAND VALUE(T_ARCH).
+END.
+
+PROCEDURE incorpora_sello.
+    DEF VAR t_sello AS CHAR NO-UNDO.
+    DEF VAR t_cadena AS CHAR NO-UNDO.
+    DEF VAR t_txt1 AS CHAR NO-UNDO.
+
+    t_arch = 'c:\tgm_sia\CFDI\wrk\prod_sello.txt'.
+    IF vg_prod = FALSE THEN t_arch = 'c:\tgm_sia\CFDI\wrk\test_sello.txt'.
+    INPUT FROM VALUE(t_arch) BINARY NO-CONVERT.
+    REPEAT:
+        t_txt1 = ''.
+        IMPORT UNFORMATTED t_txt1.
+        t_sello = t_sello + t_txt1.
+    END.
+    t_arch = 'C:\Tgm_Sia\CFDI\wrk\' + t_nom_txt + '_cadena.txt'.
+    OUTPUT TO VALUE(t_arch) APPEND.
+    PUT '' SKIP.
+    OUTPUT CLOSE.
+    INPUT FROM VALUE(t_arch).
+    REPEAT:
+        t_txt1 = ''.
+        IMPORT UNFORMATTED t_txt1.
+        t_cadena = t_cadena + t_txt1.
+    END.
+
+    ASSIGN nomina_enc.sello_emis = t_sello
+           nomina_enc.cadena = t_cadena.
+    t_arch = 'c:\tgm_sia\CFDI\wrk\' + t_nom_txt + '_previa.xml'.
+    INPUT FROM VALUE(t_arch) CONVERT SOURCE "UTF-8".
+    t_arch = 'c:\tgm_sia\CFDI\wrk\' + t_nom_txt + '_envia.xml'.
+    OUTPUT TO VALUE(t_arch) CONVERT TARGET "UTF-8".
+    REPEAT.
+        IMPORT UNFORMATTED t_txt1.
+        IF INDEX(t_txt1,'aqui va el sello') > 0 THEN
+            t_txt1 = REPLACE(t_txt1,'aqui va el sello',t_sello).
+        PUT UNFORMATTED t_txt1 SKIP.
+    END.
+    INPUT CLOSE.
+    OUTPUT CLOSE.
+END.
+
+PROCEDURE regreso.
+    DEF VAR t_comando AS CHAR NO-UNDO.
+    DEF VAR t_dir_nom AS CHAR NO-UNDO.
+    t_dir_nom = STRING(nomina_enc.anio_nom) + STRING(nomina_enc.n_nom * 100,'9999') + '\'.
+    t_comando = 'move c:\tgm_sia\CFDI\timbradas\' + t_nom_txt + '.xml ' + 
+                'c:\tgm_sia\CFDI\timbradas\' +
+                t_dir_nom + 
+                t_nom_txt + '.xml'.
+    
+    OS-COMMAND SILENT VALUE(t_comando).
+    t_todo = ''.
+    t_arch = 'c:\tgm_sia\CFDI\timbradas\' + t_dir_nom + t_nom_txt + '.xml'.
+    INPUT FROM VALUE(t_arch) BINARY NO-CONVERT.
+    REPEAT:
+        IMPORT UNFORMATTED t_txt.
+        IF t_pasada = FALSE THEN DO:
+            IF INDEX(t_txt,'TimbreFiscalDigital') > 0 THEN
+                t_pasada = TRUE.
+            ELSE
+                NEXT.
+        END.
+        t_todo = t_todo + t_txt.
+    END.
+
+    FIND CURRENT nomina_enc.
+        RUN extrae('UUID', OUTPUT t_uuid).
+        RUN extrae('FechaTimbrado', OUTPUT t_FechaTimbrado).
+        RUN extrae('RfcProvCertif', OUTPUT t_RfcProvCertif).
+        RUN extrae('SelloCFD', OUTPUT t_sellocfd).
+        RUN extrae('NoCertificadoSAT', OUTPUT t_NoCertificadoSAT).
+        RUN extrae('SelloSAT', OUTPUT t_SelloSAT).
+        ASSIGN nomina_enc.uuid = t_uuid
+               nomina_enc.f_timbrado = t_FechaTimbrado
+               nomina_enc.rfc_prov = t_RfcProvCertif
+               nomina_enc.n_cert_sat = t_NoCertificadoSAT
+               nomina_enc.sello_sat = t_SelloSAT
+               nomina_enc.sello_emis = t_sellocfd.
+END.
+
+PROCEDURE extrae.
+    DEF INPUT PARAM t_que AS CHAR NO-UNDO.
+    DEF OUTPUT PARAM t_valor AS CHAR NO-UNDO.
+    DEF VAR t_pos1 AS INT NO-UNDO.
+    DEF VAR t_pos2 AS INT NO-UNDO.
+    DEF VAR t_txt AS CHAR NO-UNDO.
+
+    t_txt = t_todo.
+    t_pos1 = INDEX(t_txt, t_que).
+    IF t_pos1 = 0 THEN RETURN.
+    t_txt = SUBSTRING(t_txt, t_pos1).
+    t_pos1 = INDEX(t_txt, '"').
+    t_pos2 = INDEX(t_txt, '"', t_pos1 + 1 ).
+    t_valor = SUBSTRING(t_txt, t_pos1 + 1, t_pos2 - t_pos1 - 1).
+    t_valor = REPLACE(t_valor,'/','').
+    t_txt = SUBSTRING(t_txt, t_pos2 + 1).
+END.
+
+PROCEDURE imprime.
+    t_arch = 'c:\tgm_sia\CFDI\wrk\' + t_nom_txt + '_previa.xml'.
+    OUTPUT TO VALUE(t_arch)  CONVERT TARGET "UTF-8".
+    DEF VAR t_tp_nom AS CHAR.
+    DEF VAR t_f_pago AS CHAR NO-UNDO.
+    DEF VAR t_f_ini AS CHAR NO-UNDO.
+    DEF VAR t_f_fin AS CHAR NO-UNDO.
+    DEF VAR t_f_ing AS CHAR NO-UNDO.
+    t_f_pago =  STRING(YEAR(calendario_nomina.f_pago),'9999') + '-' +
+                STRING(MONTH(calendario_nomina.f_pago),'99') +  '-' +
+                STRING(DAY(calendario_nomina.f_pago),'99').
+    t_f_ini  =  STRING(YEAR(calendario_nomina.f_ini),'9999') +  '-' +
+                STRING(MONTH(calendario_nomina.f_ini),'99') +  '-' +
+                STRING(DAY(calendario_nomina.f_ini),'99').
+    t_f_fin  =  STRING(YEAR(calendario_nomina.f_ter),'9999') +  '-' +
+                STRING(MONTH(calendario_nomina.f_ter),'99') +  '-' +
+                STRING(DAY(calendario_nomina.f_ter),'99').
+    t_f_ing =   STRING(YEAR(trabajador.f_ingreso),'9999') +  '-' +
+                STRING(MONTH(trabajador.f_ingreso),'99') +  '-' +
+                STRING(DAY(trabajador.f_ingreso),'99').
+    t_tp_nom = 'O'.
+    IF calendario_nomina.extraordinaria THEN t_tp_nom = 'E'.
+    t_tp_cto = '01'.
+    IF nomina_enc.categoria = 'E' THEN t_tp_cto = '03'.
+    t_sindicato = 'No'.
+    IF nomina_enc.sindicalizado THEN /* Base  */
+        t_sindicato = 'Sí'.
+    t_sdi = nomina_enc.sdi.
+    DEF VAR t_agui AS DEC NO-UNDO.
+    DEF VAR t_pv AS DEC NO-UNDO.
+
+    t_agui = t_sdi * 40.
+    t_pv = t_sdi * 40 * .25.
+    t_sdi = t_sdi.
+
+    DEF VAR t_sem AS INT NO-UNDO.
+    DEF VAR  t_banco AS INT NO-UNDO.
+    DEF VAR  t_cta AS DEC NO-UNDO.
+    t_banco = trabajador.id_banco.
+    /*IF t_banco = 0 THEN t_banco = 19.*/
+    t_sem = TRUNCATE((calendario_nom.f_termino - trabajador.f_ingreso) / 7,0).
+
+    t_cta =  INT(trabajador.n_cuenta).
+    IF t_cta = 0 THEN t_cta = 1.
+
+    IF vg_prod = FALSE THEN t_rfc = 'AAA010101AAA'.
+
+    DEF VAR t_descto AS CHAR NO-UNDO.
+    IF t_suma_d > 0 THEN 
+        t_descto = ''.
+    ELSE
+        t_descto = 'Descuento="' + fd(t_suma_d) + '" '.
+    t_descto = ''.
+    
+    t_total_deducciones = ''.
+    IF t_suma_d > 0 THEN t_total_deducciones = 'TotalDeducciones="' + fd(t_suma_d) + '" '.
+    
+    DEF VAR t_total_otros AS CHAR NO-UNDO.
+    DEF VAR t_suma_otrs AS DEC NO-UNDO.
+    t_total_otros = ''.
+    IF t_suma_otrs > 0 THEN t_total_otros = 'TotalOtrosPagos="' + fd(t_suma_otrs) + '" '.
+
+    t_descto = ''.
+    IF t_suma_d > 0 THEN t_descto = 'Descuento="' + fd(t_suma_d) + '" '.
+    
+    t_total_deducciones = ' '.
+    IF t_suma_d > 0 THEN t_total_deducciones = 'TotalDeducciones="' + fd(t_suma_d) + '" '.
+
+    PUT UNFORMAT
+            '<?xml version="1.0" encoding="utf-8"?>' SKIP
+            '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+            'xmlns:nomina12="http://www.sat.gob.mx/nomina12" xsi:schemaLocation="http://www.sat.gob.mx/cfd/3 '
+            'http://www.sat.gob.mx/sitio_internet/cfd/3/cfdv33.xsd http://www.sat.gob.mx/nomina12 '
+            'http://www.sat.gob.mx/informacion_fiscal/factura_electronica/Documents/Complementoscfdi/nomina12.xsd" '
+            'TipoCambio="1" Moneda="MXN"  MetodoPago="PUE" '
+            'LugarExpedicion="' STRING(beneficiario.c_p,'99999') '" ' 
+            'Version="3.3" '
+            'Serie="NOMINA" '
+            'Folio="' + STRING(t_anio_nom) + STRING(t_n_nom * 100,'9999') + STRING(t_id_trab,'99999')  + '" '
+            'Fecha="' + t_hoy + '" '
+            'Sello="Aqui va el sello" ' 
+            'TipoDeComprobante="N" '
+            'NoCertificado="' parametro.val_param '" '
+            'Certificado="' t_cert '" '
+            'SubTotal="' fd(t_suma_p) '" '
+            t_descto
+            'Total="' fd(t_suma_p - t_suma_d) '">' SKIP
+            '    <cfdi:Emisor Rfc="' t_rfc '" Nombre="' + vg_nom_empresa + '" RegimenFiscal="601" />' SKIP
+            '    <cfdi:Receptor Rfc="' trabajador.rfc '" '
+            'Nombre="' {adrhnom0.i} '" '
+            'UsoCFDI="P01" />' SKIP
+            '  <cfdi:Conceptos>' SKIP
+            '    <cfdi:Concepto ClaveProdServ="84111505" Cantidad="1" ClaveUnidad="ACT" Descripcion="Pago de nómina" '
+            'ValorUnitario="' fd(t_suma_p) '" ' 
+            'Importe="' fd(t_suma_p) '" '
+            'Descuento="' fd(t_suma_d) '" />' SKIP
+            '  </cfdi:Conceptos>' SKIP
+            '  <cfdi:Complemento>' SKIP
+            '     <nomina12:Nomina Version="1.2" '
+            'TipoNomina="' t_tp_nom '" '
+            'FechaPago="' t_f_pago '" '
+            'FechaInicialPago="' t_f_ini '" '
+            'FechaFinalPago="' t_f_fin '" '
+            'NumDiasPagados="' STRING(nomina_enc.n_dias,'99.999')  '" '
+            'TotalPercepciones="' fd(t_suma_p) '" '
+            t_total_deducciones 
+            t_total_otros ' > '  SKIP
+            '      <nomina12:Emisor RegistroPatronal="TGM990109718"> '
+            /*'                      <nomina12:EntidadSNCF OrigenRecurso="IP"></nomina12:EntidadSNCF> '*/
+            '</nomina12:Emisor>' SKIP
+            '      <nomina12:Receptor '
+            'Curp="' trabajador.curp '" '
+            'NumSeguridadSocial="' trabajador.n_imss '" '
+            'FechaInicioRelLaboral="' t_f_ing '" '
+            'Antigüedad="P' t_sem 'W" '
+            'TipoContrato="' t_tp_cto '" '
+            'Sindicalizado="' t_sindicato '" '
+            'TipoRegimen="02" '
+            'NumEmpleado="' trabajador.id_trab '" '
+            'Puesto="' puesto.desc_puesto '" '
+            'RiesgoPuesto="1" '
+            'PeriodicidadPago="03" '
+            'Banco="' STRING(t_banco,'999') '" '
+            'CuentaBancaria="' STRING(t_cta,'99999999999') '" '
+            'SalarioBaseCotApor="' fd(nomina_enc.sdo_base_cot) '" '
+            'SalarioDiarioIntegrado="' fd(t_sdi) '" '
+            'ClaveEntFed="DIF">'
+            '</nomina12:Receptor>' SKIP
+
+            '      <nomina12:Percepciones ' 
+            'TotalSueldos="' fd(t_suma_p) '" '
+            'TotalGravado="' fd(nomina_enc.gravable) '" '
+            'TotalExento="' fd(nomina_enc.exento) '">' SKIP
+
+            '   <nomina12:Percepcion TipoPercepcion="001" '
+            'Clave="001" Concepto="Sueldos, Salarios Rayas y Jornales" '
+            'ImporteGravado="' fd(nomina_enc.gravable) '" '
+            'ImporteExento="' fd(nomina_enc.exento) '" />' SKIP
+            
+            '   </nomina12:Percepciones>' SKIP
+
+            '   <nomina12:Deducciones '
+            'TotalOtrasDeducciones="' fd(t_suma_d - t_suma_isr) '" '
+            'TotalImpuestosRetenidos="' fd(t_suma_isr) '"> ' SKIP
+            
+            '     <nomina12:Deduccion ' 
+            'TipoDeduccion="002" '
+            'Clave="001" '
+            'Concepto="ISR" '
+            'Importe="' fd(t_suma_isr) '" />' SKIP
+            
+        '   </nomina12:Deducciones> ' SKIP
+        
+        '  </nomina12:Nomina>' SKIP
+        ' </cfdi:Complemento>' SKIP
+        '</cfdi:Comprobante>' SKIP.
+    OUTPUT CLOSE.        
+END.
+
+PROCEDURE limpia:
+    DEF INPUT PARAMETER t_campo AS CHAR NO-UNDO.
+    DEF OUTPUT PARAMETER t_todo AS CHAR NO-UNDO.
+    DEF VAR t_i AS INT NO-UNDO.
+    DEF VAR t_parte AS CHAR NO-UNDO.
+
+    DO t_i = 1 TO LENGTH(t_campo).
+        t_parte = SUBSTRING(t_campo,t_i,1).
+        IF t_parte = '&' THEN t_parte = '&amp;'.
+        IF t_parte = '<' THEN t_parte = '&lt;'.
+        IF t_parte = '>' THEN t_parte = '&gt;'.
+        IF t_parte = '"' THEN t_parte = '&quot;'.
+        IF t_parte = "'" THEN t_parte = '&apos;'.
+        t_todo = t_todo + t_parte.
+    END.
+END.
+
+PROCEDURE acomoda_percep.
+    DEF VAR t_van AS INT NO-UNDO.
+    t_txt_percep = ''.
+    
+    FOR EACH wrk WHERE
+             wrk.tipo_Concepto = 'P' NO-LOCK,
+        conc_sat OF wrk NO-LOCK
+        BREAK BY (wrk.id_sat).
+        IF t_txt_percep = '' THEN t_txt_percep = '<nomina12:Percepcion '.
+        t_txt_percep = t_txt_percep + 'TipoPercepcion="' + STRING(wrk.id_sat,'999') + '" ' +
+                       'Concepto="' + conc_sat.DESC_conc_sat + '" ' + 
+                       'ImporteGravado="' + fd(wrk.gravable) + '" ' +
+                       'ImporteExento="' + fd(wrk.exento) + '" '.
+        IF NOT LAST(wrk.id_sat) THEN t_txt_percep = t_txt_percep + CHR(13) + CHR(10).
+    END.
+    IF t_txt_percep <> '' THEN t_txt_percep = t_txt_percep + ' />'.
+    /*
+    '   <nomina12:Percepcion TipoPercepcion="001" '
+    'Clave="001" Concepto="Sueldos, Salarios Rayas y Jornales" '
+    'ImporteGravado="' fd(nomina_enc.gravable) '" '
+    'ImporteExento="' fd(nomina_enc.exento) '" />' SKIP
+    */
+END.
+
+
+FUNCTION fd RETURNS CHAR
+  ( INPUT val_dec AS DEC  ) :
+    t_val_char = TRIM(STRING(val_dec,'>>>>>>>9.99')).
+  RETURN t_val_char.
+END FUNCTION.
+
+/*
+            '      <nomina12:EntidadSNCF OrigenRecurso="IP"></nomina12:EntidadSNCF>' SKIP
+*/
+
+/*
+TipoNomina      Ordinaria,Extraordinaria
+RiesgoPuesto    
+TipoContrato    01 = Plaza, 03= Eventual, 10=Jubilación,99=Otro
+TipoRegimen 02 Sueldos, 04=Pensionados, 09=Asimil Honor, 99=Otros
+RiesgoPuesto = 1
+Periodicidad de pago 03=Catorcenal, 99=Otra
+
+NumSeguridadSocial imss
+Bancos, estados
+TotalSueldos = Percep sin 022 Quinq, 023 Separación, 025 Indemiz, 039 Jubilac, pens, 044 Jubilac, Pens
+TotalSeparacionIndemnizacion = solo 022 Quinq, 023 Separación, 025 Indemiz
+TotalJubilacionPensionRetiro = solo 039 Jubilac, pens, 044 Jubilac, Pens
+
+
+*/

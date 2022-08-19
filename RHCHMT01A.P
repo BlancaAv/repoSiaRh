@@ -1,0 +1,176 @@
+  
+  DEF VAR t_id_trab AS INT NO-UNDO.
+  DEF VAR t_f AS CHAR NO-UNDO.
+  DEF VAR t_h1 AS CHAR NO-UNDO.
+
+
+  DEF VAR t_h2 AS CHAR NO-UNDO.
+  DEF VAR t_fecha AS DATE NO-UNDO.
+  DEF VAR t_turno AS CHAR NO-UNDO.
+  DEF VAR t_ren AS INT NO-UNDO.
+  DEF VAR t_fe AS DATE NO-UNDO.
+  DEF VAR t_fs AS DATE NO-UNDO.
+  DEF VAR t_entra AS CHAR NO-UNDO.
+  DEF VAR t_sale AS CHAR NO-UNDO.
+  DEF VAR t_sigue AS INT NO-UNDO.
+  DEF VAR t_desc AS CHAR NO-UNDO.
+  DEF VAR t_fest AS CHAR NO-UNDO.
+  DEF VAR t_tipo AS CHAR NO-UNDO.
+  DEF VAR t_ref AS CHAR NO-UNDO.
+
+
+  DEF VAR t_file AS CHAR NO-UNDO.
+  t_file = 'W:\Data\Datos\carga\checadas_Etime_actual.txt'.
+  /*
+  t_file = 'C:\Data\TGM\Paso\checadas_Etime_completo.txt'.
+  t_file = 'D:\TGM\Doctos\RH\Checadas_Etime_Completo.txt'.
+  */
+  
+  t_ren = 0.
+
+  IF SEARCH(t_file) = ? THEN DO:
+      MESSAGE "El archivo de carga no existe"
+          VIEW-AS ALERT-BOX.
+      RETURN.
+  END.
+  INPUT FROM VALUE(t_file).
+
+  IMPORT t_f.  /* Encabezados */
+  REPEAT:
+      t_ren = t_ren + 1.
+
+      IMPORT DELIMITER "," t_id_trab t_f t_h1 t_entra t_h2 t_sale t_turno t_desc t_fest t_tipo t_ref.
+      t_f = TRIM(t_f).
+      t_h1 = TRIM(t_h1).
+      t_entra = TRIM(t_entra).
+      t_h2 = TRIM(t_h2).
+      t_sale = TRIM(t_sale).
+      t_turno = TRIM(t_turno).
+      t_desc = TRIM(t_desc).
+      t_fest = TRIM(t_fest).
+      t_tipo = TRIM(t_tipo).
+      t_ref = TRIM(t_ref).
+
+      IF t_tipo = 'Falta' THEN t_tipo = 'F'.
+
+      t_fecha = DATE(INT(SUBSTRING(t_f,6,2)), 
+                INT(SUBSTRING(t_f,9,2)),
+                INT(SUBSTRING(t_f,1,4))).
+      FIND trabajador WHERE
+           trabajador.id_trabajador = t_id_trab NO-LOCK NO-ERROR.
+      IF NOT AVAILABLE trabajador THEN DO:
+          RUN errores.
+          NEXT.
+      END.
+      IF t_tipo <> '' THEN RUN crea_incidencia.
+      /*
+      IF t_h1 = '' AND t_h2 = '' AND t_tipo = '' THEN DO:
+          RUN checa_falta.
+          NEXT.
+      END.
+      */
+      RUN horas(INPUT-OUTPUT t_h1, OUTPUT t_fe).
+      RUN horas(INPUT-OUTPUT t_h2, OUTPUT t_fs).
+      FIND checada WHERE
+           checada.id_trabajador = t_id_trab AND 
+           checada.f_checada = t_fecha NO-ERROR.
+      IF NOT AVAILABLE checada THEN DO:
+          CREATE checada.
+          ASSIGN checada.id_trabajador = t_id_trab 
+                 checada.f_checada = t_fecha.
+      END.
+      IF t_h1 <> '' THEN checada.entrada = t_h1.
+      IF t_h2 <> '' THEN checada.salida = t_h2.
+
+      ASSIGN checada.f_entrada = t_fe
+             checada.f_salida = t_fs
+             checada.turno = t_turno
+             checada.id_entrada = t_entra
+             checada.id_salida = t_sale.
+      IF t_desc = 'False' THEN checada.descanso = FALSE.
+      ELSE checada.descanso = TRUE.
+      IF t_fest = 'False' THEN checada.festivo = FALSE.
+      ELSE checada.festivo = TRUE.
+      
+      IF t_ren / 100 = INT(t_ren / 100) THEN DO:
+          DISPLAY t_ren WITH FRAME dialog-frame.
+          PAUSE 0.
+          PROCESS EVENTS.
+      END.
+
+  END.
+  QUIT.
+
+
+PROCEDURE horas.
+    DEF INPUT-OUTPUT PARAM t_hr AS CHAR.
+    DEF OUTPUT PARAM t_fw AS DATE.
+    DEF VAR t_txt AS CHAR NO-UNDO.
+    
+    IF t_hr = 'NULL' THEN t_hr = ''.
+
+    t_txt = SUBSTRING(t_hr,1,10).
+    t_hr = SUBSTRING(t_hr,12,5).
+    t_hr = REPLACE(t_hr,':','').
+
+    DEF VAR t_d AS INT NO-UNDO.
+    DEF VAR t_m AS INT NO-UNDO.
+    DEF VAR t_a AS INT NO-UNDO.
+
+    t_d = INT(SUBSTRING(t_txt,9,2)).
+    t_m = INT(SUBSTRING(t_txt,6,2)).
+    t_a = INT(SUBSTRING(t_txt,1,4)).
+    /*DISPLAY t_d t_m t_a.*/
+    IF t_a <> 0 THEN t_fw = DATE(t_m,t_d,t_a).
+    ELSE t_fw = ?.
+
+END.
+
+PROCEDURE errores.
+END.
+
+PROCEDURE checa_falta.
+      /*IF checada.f_carga <> TODAY THEN DO:*/
+          IF t_desc = 'False' AND t_fest = 'False' AND
+             t_tipo = '' THEN DO:
+              /* t_entra = 'E3' AND t_sale = 'S2' THEN DO: */
+              FIND FIRST incidencia WHERE
+                   incidencia.id_trab = t_id_trab AND
+                   incidencia.f_incidencia = t_fecha NO-LOCK NO-ERROR.
+              IF NOT AVAILABLE incidencia THEN DO:
+                  FIND LAST incidencia NO-LOCK NO-ERROR.
+                  IF AVAILABLE incidencia THEN t_sigue = incidencia.n_incidencia + 1.
+                  ELSE t_sigue = 1.
+                  CREATE incidencia.
+                  ASSIGN incidencia.n_incidencia = t_sigue + 1
+                         incidencia.id_trab = t_id_trab
+                         incidencia.id_tipo_incidencia = 'F'
+                         incidencia.f_incidencia = t_fecha
+                         incidencia.h_elab = TIME
+                         incidencia.obs_carga = 'Al cargar checadas'
+                         incidencia.id_usuario = 'Carga'.
+              END.
+          END.
+      /*END.*/
+END.
+
+PROCEDURE crea_incidencia.
+    FIND incidencia WHERE 
+         incidencia.id_trab = trabajador.id_trab AND
+         incidencia.id_tipo_incidencia = t_tipo AND
+         incidencia.f_incidencia = t_fecha NO-ERROR.
+    IF NOT AVAILABLE incidencia THEN DO:
+        FIND LAST incidencia NO-LOCK NO-ERROR.
+        IF AVAILABLE incidencia THEN t_sigue = incidencia.n_incidencia + 1.
+        ELSE t_sigue = 1.
+
+        CREATE incidencia.
+        ASSIGN incidencia.n_incidencia = t_sigue + 1
+               incidencia.id_trab = trabajador.id_trab
+               incidencia.id_tipo_incidencia = t_tipo
+               incidencia.f_incidencia = t_fecha
+               incidencia.h_elab = TIME
+               incidencia.id_usuario = 'Carga'.
+    END.
+    incidencia.Coment_incidencia = t_ref.
+END.

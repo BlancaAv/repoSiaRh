@@ -1,0 +1,411 @@
+/*
+
+  Calcula Curp
+
+*/
+
+DEFINE INPUT PARAMETER NOMTRA AS CHAR FORMAT 'X(40)'.
+DEFINE INPUT PARAMETER APPAT  AS CHAR FORMAT 'X(40)'.
+DEFINE INPUT PARAMETER APMAT  AS CHAR FORMAT 'X(40)'.
+DEFINE INPUT PARAMETER FECNAC AS DATE.
+DEFINE INPUT PARAMETER ip-sexo    AS CHARACTER.
+DEFINE INPUT PARAMETER ip-cveedo  AS CHARACTER.
+DEFINE OUTPUT PARAMETER op-curp LIKE trabajador.curp.
+
+
+/************ CAMBIA ALGUNAS LETRAS *************/
+/*                   ÁÉÍÓÚÜ                     */
+
+APPAT = replace(APPAT,'Á','A').  
+APPAT = replace(APPAT,'É','E').
+APPAT = replace(APPAT,'Í','I').
+APPAT = replace(APPAT,'Ó','O').
+APPAT = replace(APPAT,'Ú','U').
+APPAT = replace(APPAT,'Ü','U').
+APPAT = replace(APPAT,'Ñ','X').
+
+APMAT = replace(APMAT,'Á','A').
+APMAT = replace(APMAT,'É','E').
+APMAT = replace(APMAT,'Í','I').
+APMAT = replace(APMAT,'Ó','O').
+APMAT = replace(APMAT,'Ú','U').
+APMAT = replace(APMAT,'Ü','U').
+APMAT = replace(APMAT,'Ñ','X').
+
+NOMTRA = replace(NOMTRA,'Á','A').
+NOMTRA = replace(NOMTRA,'É','E').
+NOMTRA = replace(NOMTRA,'Í','I').
+NOMTRA = replace(NOMTRA,'Ó','O').
+NOMTRA = replace(NOMTRA,'Ú','U').
+NOMTRA = replace(NOMTRA,'Ü','U').
+NOMTRA = replace(NOMTRA,'Ñ','X').
+
+DEFINE VAR V_RFC     AS CHAR.
+DEFINE VAR V_TEM     AS CHAR.
+DEFINE VAR VL_NOMBRE AS CHAR.
+DEFINE VAR VL_PRI    AS INTEGER.
+DEFINE VAR VL_SEG    AS INTEGER.
+DEFINE VAR VL_RES    AS DECIMAL.
+DEFINE VAR VL_CAR    AS CHAR.
+DEFINE VAR VL_INICIO AS LOGICA.
+DEFINE VAR V_HOMO1   AS CHAR.
+DEFINE VAR V_HOMO2   AS CHAR.
+DEFINE VAR V_HOMO3   AS CHAR.
+DEFINE VAR V_HOMO4   AS CHAR.
+DEFINE VAR V_IND     AS INTEGER.
+DEFINE VAR VL_APPAT  AS CHAR FORMAT 'X(40)'.
+DEFINE VAR VL_APMAT  AS CHAR FORMAT 'X(40)'.
+DEFINE VAR VL_NOMTRA AS CHAR FORMAT 'X(40)'.
+DEFINE VAR l-homoclave AS LOGICAL INITIAL TRUE.
+
+DEFINE TEMP-TABLE V_PREPO FIELD CAMPO AS CHAR
+                          FIELD POSI  AS INTEGER
+                          FIELD TIPO  AS INTEGER
+INDEX i00-prepo tipo.
+
+
+
+RUN remplaza.
+
+CREATE V_PREPO. CAMPO = 'DE '       . POSI = 3. TIPO = 1.
+CREATE V_PREPO. CAMPO = 'LA '       . POSI = 3. TIPO = 1.
+CREATE V_PREPO. CAMPO = 'LAS '      . POSI = 4. TIPO = 1.
+CREATE V_PREPO. CAMPO = 'MC '       . POSI = 3. TIPO = 1.
+CREATE V_PREPO. CAMPO = 'VON '      . POSI = 4. TIPO = 1.
+CREATE V_PREPO. CAMPO = 'DEL '      . POSI = 4. TIPO = 1.
+CREATE V_PREPO. CAMPO = 'LOS '      . POSI = 4. TIPO = 1.
+CREATE V_PREPO. CAMPO = 'Y '        . POSI = 2. TIPO = 1.
+CREATE V_PREPO. CAMPO = 'MAC '      . POSI = 4. TIPO = 1.
+CREATE V_PREPO. CAMPO = 'VAN '      . POSI = 4. TIPO = 1.
+
+CREATE V_PREPO. CAMPO = 'MARIA '  .       POSI = 6. TIPO = 2.
+CREATE V_PREPO. CAMPO = 'JOSE '   .       POSI = 5. TIPO = 2.
+CREATE V_PREPO. CAMPO = 'MA '   .         POSI = 3. TIPO = 2.
+CREATE V_PREPO. CAMPO = 'MARIA DE '.      POSI = 9. TIPO = 2.
+CREATE V_PREPO. CAMPO = 'MARIA DE LA '.   POSI = 12. TIPO = 2.
+CREATE V_PREPO. CAMPO = 'MARIA DE LOS '.  POSI = 13. TIPO = 2.
+CREATE V_PREPO. CAMPO = 'MARIA DEl '.     POSI = 10. TIPO = 2.
+CREATE V_PREPO. CAMPO = 'MA DEl '.        POSI = 7. TIPO = 2.
+CREATE V_PREPO. CAMPO = 'MA DE '.         POSI = 6. TIPO = 2.
+CREATE V_PREPO. CAMPO = 'MA DE LA '.      POSI = 9. TIPO = 2.
+CREATE V_PREPO. CAMPO = 'MA DE LOS '.     POSI = 10. TIPO = 2.
+
+CREATE V_PREPO. CAMPO = 'BUEI'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'BUEY'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'CACA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'CACO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'CAGA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'CAGO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'CAKA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'CAKO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'COGE'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'COGA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'COJE'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'COJI'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'COJO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'CULO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'FETO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'GUEY'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'JOTO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'KACA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'KAKO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'KAGA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'KAGO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'KOGE'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'KOJO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'KAKA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'KULO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'LOCA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'LOCO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'LOKA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'LOKO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'MAME'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'MAMO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'MEAR'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'MEAS'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'MEON'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'MION'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'MOCO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'MULA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'PEDA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'PEDO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'PENE'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'PUTA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'PUTO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'QULO'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'RATA'   .  TIPO = 3.
+CREATE V_PREPO. CAMPO = 'RUIN'   .  TIPO = 3.
+
+ASSIGN
+    VL_APPAT  = APPAT
+    VL_APMAT  = APMAT
+    VL_NOMTRA = NOMTRA.
+
+/******************************************************************************/
+/*                 RUTINA PARA EL APELLIDO PATERNO                            */
+/******************************************************************************/
+FOR EACH V_PREPO WHERE TIPO = 1:
+    IF CAMPO = SUBSTRING(VL_APPAT,1,POSI) THEN DO:
+       VL_APPAT = SUBSTRING(VL_APPAT,POSI + 1,LENGTH(VL_APPAT)).
+    END.
+END.
+FOR EACH V_PREPO WHERE TIPO = 1:
+    IF CAMPO = SUBSTRING(VL_APPAT,1,POSI) THEN DO:
+       VL_APPAT = SUBSTRING(VL_APPAT,POSI + 1,LENGTH(VL_APPAT)).
+    END.
+END.
+FOR EACH V_PREPO WHERE TIPO = 1:
+    IF CAMPO = SUBSTRING(VL_APPAT,1,POSI) THEN DO:
+       VL_APPAT = SUBSTRING(VL_APPAT,POSI + 1,LENGTH(VL_APPAT)).
+    END.
+END.
+
+/******************************************************************************/
+/*                 RUTINA PARA EL APELLIDO MATERNO                            */
+/******************************************************************************/
+FOR EACH V_PREPO WHERE TIPO = 1:
+    IF CAMPO = SUBSTRING(VL_APMAT,1,POSI) THEN DO:
+       VL_APMAT = SUBSTRING(VL_APMAT,POSI + 1,LENGTH(VL_APMAT)).
+    END.
+END.
+FOR EACH V_PREPO WHERE TIPO = 1:
+    IF CAMPO = SUBSTRING(VL_APMAT,1,POSI) THEN DO:
+       VL_APMAT = SUBSTRING(VL_APMAT,POSI + 1,LENGTH(VL_APMAT)).
+    END.
+END.
+FOR EACH V_PREPO WHERE TIPO = 1:
+    IF CAMPO = SUBSTRING(VL_APMAT,1,POSI) THEN DO:
+       VL_APMAT = SUBSTRING(VL_APMAT,POSI + 1,LENGTH(VL_APMAT)).
+    END.
+END.
+
+FOR EACH V_PREPO WHERE TIPO = 2 BY POSI DESC:
+    if campo <> vl_nomtra then do:
+    IF CAMPO = SUBSTRING(VL_NOMTRA,1,POSI) THEN DO:
+       VL_NOMTRA = SUBSTRING(VL_NOMTRA,POSI + 1,LENGTH(VL_NOMTRA)).
+    END.
+    end.
+END.
+
+/******* PARTE DE CÓDIGO AGREGADA POR VALIDANDO QUE NO TENGA APELLIDO MATERNO 01/02/2000 ***********/
+IF LENGTH(VL_APMAT) = 0 THEN DO:
+    l-homoclave = FALSE.
+    IF LENGTH(VL_APPAT) < 3 THEN
+        V_HOMO1 = SUBSTRING(VL_APPAT,1,1) +
+                  SUBSTRING(VL_NOMTRA,1,3).
+    ELSE DO:
+        V_HOMO1 = SUBSTRING(VL_APPAT,1,1).
+        DO V_IND = 2 TO LENGTH(VL_APPAT):
+            IF CAN-DO('A,E,I,O,U',SUBSTRING(VL_APPAT,V_IND,1)) THEN DO:
+                V_HOMO1 = V_HOMO1 + SUBSTRING(VL_APPAT,V_IND,1).
+                LEAVE.
+            END.
+        END.
+        V_HOMO1 = V_HOMO1 + SUBSTRING(VL_NOMTRA,1,2).
+    END.
+END.
+ELSE DO:
+/*MODIFICADO EL 07/06/2000 PARA QUE CUANDO TRAIGA EL APELLIDO MATERNO Y NO EL PATERNO NO GENERE HOMOCLAVE */
+    IF LENGTH(VL_APPAT) = 0 THEN DO:
+        l-homoclave = FALSE.
+        IF LENGTH(VL_APMAT) < 3 THEN
+            V_HOMO1 = SUBSTRING(VL_APMAT,1,1) +
+                      SUBSTRING(VL_NOMTRA,1,3).
+        ELSE DO:
+            V_HOMO1 = SUBSTRING(VL_APMAT,1,1).
+            DO V_IND = 2 TO LENGTH(VL_APMAT):
+                IF CAN-DO('A,E,I,O,U',SUBSTRING(VL_APMAT,V_IND,1)) THEN DO:
+                    V_HOMO1 = V_HOMO1 + SUBSTRING(VL_APMAT,V_IND,1).
+                    LEAVE.
+                END.
+            END.
+            V_HOMO1 = V_HOMO1 + SUBSTRING(VL_NOMTRA,1,2).
+        END.
+    END.
+    ELSE DO:
+        IF LENGTH(VL_APPAT) < 3 THEN
+            V_HOMO1 = SUBSTRING(VL_APPAT,1,1) +
+                      SUBSTRING(VL_APMAT,1,1) +
+                      SUBSTRING(VL_NOMTRA,1,2).
+        ELSE DO:
+            V_HOMO1 = SUBSTRING(VL_APPAT,1,1).
+            DO V_IND = 2 TO LENGTH(VL_APPAT):
+                IF CAN-DO('A,E,I,O,U',SUBSTRING(VL_APPAT,V_IND,1)) THEN DO:
+                    V_HOMO1 = V_HOMO1 + SUBSTRING(VL_APPAT,V_IND,1).
+                    LEAVE.
+                END.
+            END.
+            V_HOMO1 = V_HOMO1 + SUBSTRING(VL_APMAT,1,1).
+            V_HOMO1 = V_HOMO1 + SUBSTRING(VL_NOMTRA,1,1).
+        END.
+    END.
+END.
+
+
+FOR EACH V_PREPO WHERE TIPO = 3:
+    IF V_HOMO1 = CAMPO THEN
+       V_HOMO1 = SUBSTRING(V_HOMO1,1,3) + 'X'.
+END.
+
+V_HOMO2 = STRING(YEAR(FECNAC) MODULO 100,'99') +
+          STRING(MONTH(FECNAC),'99')           +
+          STRING(DAY(FECNAC),'99').
+
+VL_NOMBRE = APPAT + ' ' + APMAT + ' ' + NOMTRA.
+V_TEM = '0'.
+DO V_IND = 1 TO LENGTH(VL_NOMBRE):
+   VL_CAR = SUBSTRING(VL_NOMBRE,V_IND,1).
+   V_TEM = V_TEM + STRING(
+           (IF VL_CAR >= '0' AND VL_CAR <= '9' THEN ASC(VL_CAR) - 48 ELSE
+           (IF VL_CAR = ' ' THEN 0 ELSE
+           (IF VL_CAR = '&' THEN 10 ELSE   
+           (IF ASC(VL_CAR) = 165 THEN 10 ELSE  
+           (IF VL_CAR < 'J' THEN ASC(VL_CAR) - 54 ELSE
+           (IF VL_CAR < 'S' THEN ASC(VL_CAR) - 53
+           ELSE ASC(VL_CAR) - 51 )))))),'99') .
+END.
+DO V_IND = 1 TO LENGTH(V_TEM):
+   VL_PRI = INTEGER(SUBSTRING(V_TEM,V_IND,2)).
+   VL_SEG = INTEGER(SUBSTRING(V_TEM,V_IND + 1,1)).
+   VL_RES = VL_RES + (VL_PRI * VL_SEG).
+END.
+VL_PRI = TRUNCATE(DECIMAL((VL_RES MODULO 1000 / 34)),0).
+VL_SEG = INTEGER(VL_RES MODULO 1000 MODULO 34).
+
+IF VL_PRI < 9 THEN
+   VL_CAR = CHR(VL_PRI + 49).
+ELSE DO:
+   IF VL_PRI < 23 THEN
+      VL_CAR = CHR(VL_PRI + 56).
+   ELSE
+      VL_CAR = CHR(VL_PRI + 57).
+END.
+
+IF VL_SEG < 9 THEN
+   VL_CAR = VL_CAR + CHR(VL_SEG + 49).
+ELSE DO:
+   IF VL_SEG < 23 THEN
+      VL_CAR = VL_CAR + CHR(VL_SEG + 56).
+   ELSE
+      VL_CAR = VL_CAR + CHR(VL_SEG + 57).
+END.
+
+ASSIGN
+    V_RFC  = V_HOMO1 + V_HOMO2 + VL_CAR
+    V_TEM  = ''
+    VL_SEG = 0.
+
+
+DO V_IND = 1 TO LENGTH(V_RFC):
+   VL_CAR = SUBSTRING(V_RFC,V_IND,1).
+   VL_PRI = (IF VL_CAR >= '0' AND VL_CAR <= '9' THEN ASC(VL_CAR) - 48 ELSE
+            (IF VL_CAR = ' '  THEN 37 ELSE
+            (IF VL_CAR = '&'  THEN 24  ELSE   
+            (IF ASC(VL_CAR) = 165  THEN 24 ELSE  
+            (IF VL_CAR <= 'N' THEN ASC(VL_CAR) - 55 ELSE ASC(VL_CAR) - 54))))).
+   VL_SEG = VL_SEG + (VL_PRI * (14 - V_IND)).
+   
+END.
+
+VL_PRI = VL_SEG MODULO 11.
+
+IF VL_PRI = 0  THEN V_RFC = V_RFC + '0'.
+ELSE DO:
+   VL_PRI = 11 - VL_PRI.
+   
+   IF VL_PRI = 10 THEN V_RFC = V_RFC + 'A'. ELSE
+   IF VL_PRI = 0  THEN V_RFC = V_RFC + '0'. ELSE
+   V_RFC = V_RFC + STRING(VL_PRI).
+END.
+IF l-homoclave = FALSE THEN
+    V_RFC = SUBSTRING(V_RFC, 1, 10).
+
+RUN curp(v_rfc).
+
+
+
+PROCEDURE curp :
+DEFINE INPUT PARAMETER ip-rfc AS CHAR.
+DEF VAR x AS INT.
+DEF VAR l-long AS INT.
+DEF VAR l-cont AS INT.
+DEF VAR l-cont2 AS INT.
+DEFINE VARIABLE l-vocal  AS CHAR EXTENT 5 INITIAL['A','E','I','O','U'].
+DEF VAR l-ok AS LOG.
+
+op-curp = SUBSTRING(ip-rfc, 1, 10).
+
+
+ASSIGN
+    op-curp = op-curp + ip-sexo + ip-cveedo
+    l-ok    = FALSE.
+
+l-long = LENGTH(VL_APPAT).
+DO l-cont = 2 TO l-long:
+    DO l-cont2 = 1 TO 5:
+        IF CAPS(SUBSTRING(VL_APPAT,l-cont,1)) = l-vocal[l-cont2] THEN LEAVE.
+        IF l-cont2 = 5 THEN l-ok = TRUE.
+    END.
+    IF l-ok THEN DO:
+        op-curp = CAPS(op-curp + SUBSTRING(VL_APPAT,l-cont,1)).
+        LEAVE.
+    END.
+END.
+
+l-ok = FALSE.
+l-long = LENGTH(VL_APMAT).
+DO l-cont =  2  TO l-long:
+    DO l-cont2 = 1 TO 5:
+        IF CAPS(SUBSTRING(VL_APMAT,l-cont,1)) = l-vocal[l-cont2] THEN LEAVE.
+        IF l-cont2 = 5  THEN l-ok = TRUE.
+    END.
+    IF l-ok THEN DO:
+        op-curp = CAPS(op-curp + SUBSTRING(VL_APMAT,l-cont,1)).
+        LEAVE.
+    END.
+END.
+
+l-ok   = FALSE.
+l-long = LENGTH(VL_NOMTRA).
+DO l-cont = 2 TO l-long:
+    DO l-cont2 = 1 TO 5:
+        IF CAPS(SUBSTRING(VL_NOMTRA,l-cont,1)) = l-vocal[l-cont2] THEN LEAVE.
+        IF l-cont2 = 5  THEN l-ok = TRUE.
+    END.
+    IF l-ok THEN DO:
+        op-curp = CAPS(op-curp + SUBSTRING(VL_NOMTRA,l-cont,1)).
+        LEAVE.
+    END.
+END.
+
+op-curp = REPLACE(op-curp, 'Ñ', 'X').
+
+END PROCEDURE.
+
+
+PROCEDURE remplaza :
+APPAT = REPLACE(APPAT,'Á','A').  
+APPAT = REPLACE(APPAT,'É','E').
+APPAT = REPLACE(APPAT,'Í','I').
+APPAT = REPLACE(APPAT,'Ó','O').
+APPAT = REPLACE(APPAT,'Ú','U').
+APPAT = REPLACE(APPAT,'Ü','U').
+APPAT = REPLACE(APPAT,'Ñ','Ñ').
+
+APMAT = REPLACE(APMAT,'Á','A').
+APMAT = REPLACE(APMAT,'É','E').
+APMAT = REPLACE(APMAT,'Í','I').
+APMAT = REPLACE(APMAT,'Ó','O').
+APMAT = REPLACE(APMAT,'Ú','U').
+APMAT = REPLACE(APMAT,'Ü','U').
+APMAT = REPLACE(APMAT,'Ñ','Ñ').
+
+NOMTRA = REPLACE(NOMTRA,'Á','A').
+NOMTRA = REPLACE(NOMTRA,'É','E').
+NOMTRA = REPLACE(NOMTRA,'Í','I').
+NOMTRA = REPLACE(NOMTRA,'Ó','O').
+NOMTRA = REPLACE(NOMTRA,'Ú','U').
+NOMTRA = REPLACE(NOMTRA,'Ü','U').
+NOMTRA = REPLACE(NOMTRA,'Ñ','Ñ').
+END PROCEDURE.
+

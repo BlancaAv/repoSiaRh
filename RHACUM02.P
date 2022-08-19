@@ -1,0 +1,71 @@
+ /*
+
+    Calcula acumulados por trabajador
+
+*/
+
+DEF INPUT PARAM t_id_trab AS INT NO-UNDO.
+DEF INPUT PARAM t_anio AS INT NO-UNDO.
+DEF VAR t_mes AS INT.
+
+FOR EACH acumulado WHERE
+    acumulado.id_trabajador = t_id_trab AND
+    acumulado.anio_nom = t_anio.
+    DELETE acumulado.
+END.
+FOR EACH nomina_enc NO-LOCK WHERE
+    nomina_enc.id_trabajador = t_id_trab AND
+    nomina_enc.anio = t_anio.
+    
+    FIND calendario_nomina OF nomina_enc NO-LOCK NO-ERROR.
+    IF NOT AVAILABLE calendario_nomina THEN DO:
+        MESSAGE 'No encuentro calendario' SKIP
+                'Año' nomina_enc.anio_nom SKIP
+                'No. Nom' nomina_enc.n_nomina SKIP
+                'Trab ' nomina_enc.id_trab  VIEW-AS ALERT-BOX ERROR.
+        NEXT.
+    END.
+    t_mes = calendario_nomina.mes_nomina.
+    
+    IF nomina_enc.n_faltas > 0 AND calendario_nomina.id_tipo_nomina = 1 THEN DO:
+        RUN busca_crea('Faltas','').
+        acumulado.importe[t_mes] = acumulado.importe[t_mes] + nomina_enc.n_faltas.
+        acumulado.importe[13] = acumulado.importe[13] + nomina_enc.n_faltas.
+    END.
+    IF calendario_nomina.id_tipo_nomina = 1 THEN DO:
+        RUN busca_crea('Dias','').
+        acumulado.importe[t_mes] = acumulado.importe[t_mes] + nomina_enc.n_dias.
+        acumulado.importe[13] = acumulado.importe[13] + nomina_enc.n_dias.
+    END.
+    FOR EACH nomina_det OF nomina_enc NO-LOCK.
+        RUN busca_crea('$',nomina_det.id_concepto).
+        acumulado.importe[t_mes] = acumulado.importe[t_mes] + nomina_det.importe.
+        acumulado.importe[13] = acumulado.importe[13] + nomina_det.importe.
+    END.
+END.
+
+PROCEDURE busca_crea.
+    DEF INPUT PARAM t_tipo_reg AS CHAR NO-UNDO.
+    DEF INPUT PARAM t_id_conc AS CHAR NO-UNDO.
+    FIND acumulado WHERE
+         acumulado.id_trabajador = t_id_trab AND
+         acumulado.anio_nomina = t_anio AND
+         acumulado.tipo_reg = t_tipo_reg AND
+         acumulado.honorarios = nomina_enc.honorarios AND
+         acumulado.id_concepto = t_id_conc AND 
+         acumulado.sueldo_bruto = nomina_enc.sueldo_mes + nomina_enc.comp_garant
+        NO-ERROR.
+    IF NOT AVAILABLE acumulado THEN DO:
+        CREATE acumulado.
+        ASSIGN acumulado.id_trabajador = t_id_trab 
+               acumulado.anio_nomina = t_anio 
+               acumulado.tipo_reg = t_tipo_reg 
+               acumulado.honorarios = nomina_enc.honorarios
+               acumulado.id_concepto = t_id_conc  
+               acumulado.sueldo_bruto = nomina_enc.sueldo_mes + nomina_enc.comp_garant
+               acumulado.sueldo_mes = nomina_enc.sueldo_mes
+               acumulado.comp_garant = nomina_enc.comp_garant
+               acumulado.honorarios = nomina_enc.honorarios.
+    END.
+END.
+

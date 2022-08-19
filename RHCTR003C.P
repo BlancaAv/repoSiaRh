@@ -1,0 +1,31 @@
+{excel.i}.    
+    RUN abre_excel_xls(SEARCH('RH_cat_pensiones.xlt')).
+    DEF VAR t_tp AS CHAR EXTENT 5 INITIAL
+    ['Importe fijo Quinc', 'Sal. Mínimos Quinc',
+     '% Percepciones', '% Neto', '% Conceptos'].
+    t_ren = 5.
+    FOR EACH pension NO-LOCK,
+        EACH trabajador OF pension NO-LOCK WHERE 
+            trabajador.estatus = 'A'
+        BREAK BY pension.id_trab.
+        t_ren = t_ren + 1.
+        IF FIRST-OF(pension.id_trab) THEN DO: 
+            RUN PINTA(pension.id_trab, t_ren,1).
+            RUN PINTA({adrhnom0.i}, t_ren,2).
+        END.
+        RUN PINTA(pension.n_pension, t_ren,6).
+        RUN PINTA(pension.nombre + ' ' + pension.ape_pat + ' ' + pension.ape_mat, t_ren,7).
+        RUN PINTA(t_tp[pension.tipo_calculo], t_ren,12).
+        RUN PINTA(pension.valor, t_ren,13).
+        IF pension.id_tipo_nom <> 0 THEN DO:
+            FIND tipo_nomina OF pension NO-LOCK.
+            RUN PINTA(tipo_nomina.DESC_tipo, t_ren,14).
+        END.
+        ELSE
+            RUN PINTA('todas', t_ren,14).
+        IF pension.id_estatus = 0 THEN RUN PINTA('Inactiva', t_ren,15).
+        ELSE RUN PINTA('Activa', t_ren,15).
+        RUN PINTA(pension.id_proveedor, t_ren,16).
+    END.
+RUN cierra_excel.
+MESSAGE 'Proceso concluido' VIEW-AS ALERT-BOX INFORMATION.

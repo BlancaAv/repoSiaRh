@@ -1,0 +1,117 @@
+/*
+
+    imss. calculo de importes mensuales a pagar.
+
+*/
+
+
+DEF INPUT PARAM t_dias_trab  AS INT NO-UNDO.
+DEF INPUT PARAM t_dias_inc   AS DEC NO-UNDO.
+DEF INPUT PARAM t_dias_falta AS DEC NO-UNDO.
+DEF INPUT PARAM t_sdi        AS DEC NO-UNDO.
+
+/* Valores entrada*/
+/*
+nomina_enc.n_dias,   
+nomina_enc.dias_inc_emp + nomina_enc.dias_inc_imss + nomina_enc.N_Incapac_SG, 
+TRUNCATE(nomina_enc.n_faltas,0),
+trabajador.sdi
+*/
+DEF OUTPUT PARAM t_pagar_trab AS DEC NO-UNDO DECIMALS 4.
+DEF OUTPUT PARAM t_pagar_patr AS DEC NO-UNDO DECIMALS 4.
+DEF OUTPUT PARAM t_retiro_p   AS DEC NO-UNDO.
+DEF OUTPUT PARAM t_ces_p      AS DEC NO-UNDO.
+DEF OUTPUT PARAM t_ces_t      AS DEC NO-UNDO.
+DEF OUTPUT PARAM t_infon      AS DEC NO-UNDO.
+
+/* Valores salida*/
+/*
+    RUN crea_det(t_result, 'D002').             /* Trabjador Mensual*/
+    RUN crea_det(t_paga_patron,'P002').         /* Patrón Mensual*/
+    RUN crea_det(t_retiro,'P119').              /* Retiro del 2% Patrón BIMestral*/
+    RUN crea_det(t_ces_p,'P121').               /* cesantia y vejes Patrón BIMestral*/
+    RUN crea_det(t_ces_t,'D009').               /* cesantia y vejes Trabajador BIMestral*/
+    RUN crea_det(t_infon,'P120').               /* infonavit 5% Patrón BIMestral*/
+*/
+
+
+
+DEF VAR t_dias_reales AS INT NO-UNDO.
+DEF VAR t_uma         AS DEC NO-UNDO.
+
+DEF VAR t_tope_inv_vida AS DEC NO-UNDO.
+DEF VAR t_tope_enf_mat  AS DEC NO-UNDO.
+DEF VAR t_excd_enf_mat  AS DEC NO-UNDO.
+
+DEF VAR t_enf_mat_exc AS DEC NO-UNDO DECIMALS 4.
+DEF VAR t_enf_mat_1   AS DEC NO-UNDO DECIMALS 4. /* Excedente */
+DEF VAR t_enf_mat_2   AS DEC NO-UNDO DECIMALS 4. /* prest dinero */
+DEF VAR t_enf_mat_3   AS DEC NO-UNDO DECIMALS 4. /* gast med */
+DEF VAR t_inv_vida    AS DEC NO-UNDO DECIMALS 4.
+DEF VAR t_ces_vej     AS DEC NO-UNDO DECIMALS 4.
+DEF VAR t_cuota_dia   AS DEC NO-UNDO DECIMALS 4.
+
+FIND constante 'UMA' NO-LOCK.
+t_uma = constante.valor[1].
+
+t_dias_reales = t_dias_trab - t_dias_inc.
+
+t_tope_inv_vida = MIN(t_sdi, t_uma * 25).   /* 165 */
+
+t_tope_enf_mat  = MIN(t_sdi, t_uma * 25).    /* 166 */
+
+t_excd_enf_mat  = MAX(t_tope_enf_mat - (3 * t_uma), 0). /* 167 */
+
+/* Trabjador Mensual*/
+t_enf_mat_1 = t_excd_enf_mat * .0040 * t_dias_reales. /* 168 */                     /* exedente del SBC*/
+t_enf_mat_2 = t_tope_enf_mat * .0025 * t_dias_reales. /* 169 */                     /* prestaciones dinero*/
+t_enf_mat_3 = t_tope_enf_mat * .00375 * t_dias_reales. /* 170 */                    /* gastos médicos pensionados*/
+t_inv_vida = t_tope_inv_vida * .00625 * (t_dias_reales - t_dias_falta). /* 171 */   /* invalidez y vida*/
+
+/* Trabajador Bimestral*/
+t_ces_vej = t_tope_inv_vida * .01125 * t_dias_reales. /* 171 */                     /* cesantía y vejes*/
+
+t_cuota_dia = t_enf_mat_1 + t_enf_mat_2 + t_enf_mat_3 +
+              t_inv_vida. /* + t_ces_vej.*/
+t_pagar_trab = t_cuota_dia. /* * t_dias_trab.*/
+
+
+/*
+MESSAGE t_pagar_trab t_enf_mat_1 t_enf_mat_2 t_enf_mat_3
+    t_inv_vida t_ces_vej VIEW-AS ALERT-BOX.
+*/
+DEF VAR t_cuota_fija    AS DEC NO-UNDO DECIMALS 4.
+DEF VAR t_excd_sbc      AS DEC NO-UNDO DECIMALS 4.
+DEF VAR t_prest_dinero  AS DEC NO-UNDO DECIMALS 4.
+DEF VAR t_gast_med_pens AS DEC NO-UNDO DECIMALS 4.
+DEF VAR t_inv_vida_p    AS DEC NO-UNDO DECIMALS 4.
+DEF VAR t_riesgo        AS DEC NO-UNDO DECIMALS 4.
+DEF VAR t_guard         AS DEC NO-UNDO DECIMALS 4.
+
+
+/* Patrón Mensual*/
+t_cuota_fija = ROUND(t_uma * .204 * t_dias_reales,2).           /* Cuota Fija*/
+IF t_sdi > 3 * t_uma THEN t_excd_sbc = ROUND((t_sdi - (3 * t_uma)) * t_dias_reales * .011,2). /* exedente del SBC*/
+t_prest_dinero  = ROUND(t_sdi * .007 * t_dias_reales,2).                      /* prestaciones dinero*/
+t_gast_med_pens = ROUND(t_sdi * .0105 * t_dias_reales,2).                     /* gastos médicos pensionados*/
+t_inv_vida_p    = ROUND(t_sdi * .0175 * (t_dias_reales - t_dias_falta),2).    /* invalidez y vida*/
+t_riesgo        = ROUND(t_sdi * .0113065 * (t_dias_reales - t_dias_falta),2). /* riesgo de trabajo*/           /* cambio era 0.25984 */
+t_guard = ROUND(t_sdi * .01 * (t_dias_reales - t_dias_falta),2).             /* Guardería*/
+
+t_pagar_patr = t_cuota_fija + t_excd_sbc + t_prest_dinero +
+               t_gast_med_pens + t_inv_vida_p + t_riesgo +
+               t_guard.
+/*
+DISPLAY t_cuota_fija t_excd_sbc t_prest_dinero t_gast_med_pens
+    t_inv_vida_p t_riesgo t_guard t_pagar_patr.
+*/
+
+/* Cuotas bimestrales*/
+    t_retiro_p = t_sdi * (t_dias_trab - t_dias_falta) * .02.                /* Retiro del 2% Patrón*/
+    t_ces_p    = t_sdi * (t_dias_trab - t_dias_falta - t_dias_inc) * .0315. /* cesantia y vejes Patrón*/
+    t_ces_t    = t_sdi * (t_dias_trab - t_dias_falta - t_dias_inc) * .01125. /*cesantia y vejes Trabajador*/
+    t_infon    = t_sdi * (t_dias_trab - t_dias_falta) * .05.                 /* infonavit 5% Patrón*/
+
+
+
+ 

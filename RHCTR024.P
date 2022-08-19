@@ -1,0 +1,127 @@
+
+{excel.i}.
+{VARS_NOM.I}.
+
+DEF VAR t_tabla AS CHAR NO-UNDO EXTENT 300.
+DEF VAR t_campo AS CHAR NO-UNDO EXTENT 300.
+DEF VAR t_n_campos AS INT NO-UNDO.
+DEF VAR t_col AS INT NO-UNDO.
+DEF VAR t_i AS INT NO-UNDO.
+DEF VAR t_edad AS INT NO-UNDO.
+DEF VAR t_regresa AS CHAR NO-UNDO.
+DEF VAR t_reg_dec AS DEC NO-UNDO.
+
+DEF INPUT PARAM t_row AS ROWID NO-UNDO.
+RUN abre_excel.
+
+FIND rep_rh where
+     ROWID(rep_rh) = t_row NO-LOCK.
+t_ren = 1.
+FOR EACH rep_rh_det OF rep_rh NO-LOCK.
+    FIND dato_reportear OF rep_rh_det NO-LOCK.
+    t_i = t_i + 1.
+    t_tabla[t_i] = dato_reportear.tabla.
+    t_campo[t_i] = dato_reportear.campo.
+    IF dato_reportear.tabla = '' THEN
+        t_campo[t_i] = dato_reportear.id_constante.
+    RUN pinta(dato_reportear.descripcion, t_ren, t_i).
+END.
+t_n_campos = t_i.
+FOR EACH trabajador NO-LOCK WHERE 
+    trabajador.estatus = 'A'.
+    {calculo_base.i}.
+    RUN adanios.p(trabajador.f_nac, TODAY, OUTPUT t_edad).
+
+    t_ren = t_ren + 1.
+    DO t_i = 1 TO t_n_campos.
+        RUN obten_dato(t_campo[t_i]).
+        IF t_tabla[t_i] <> '' THEN
+            RUN pinta(t_regresa,t_ren, t_i).
+        ELSE
+            RUN pinta(t_reg_dec,t_ren, t_i).
+    END.
+END.
+RUN cierra_excel.
+MESSAGE 'Proceso Concluido' VIEW-AS ALERT-BOX.
+
+PROCEDURE obten_dato.
+    DEF INPUT PARAM t_busca AS CHAR NO-UNDO.
+    t_regresa = ''.
+    t_reg_dec = 0.
+    IF t_tabla[t_i] = 'trabajador' THEN DO:
+        IF t_busca = 'id_trabajador' THEN t_regresa = STRING(trabajador.id_trabajador).
+        IF t_busca = 'Ape_Pat' THEN t_regresa = trabajador.Ape_Pat.
+        IF t_busca = 'Ape_mat' THEN t_regresa = trabajador.Ape_mat.
+        IF t_busca = 'Nombre' THEN t_regresa = trabajador.Nombre.
+        IF t_busca = 'Nom_comp' THEN t_regresa = trabajador.Nombre + ' ' + 
+                      trabajador.Ape_Pat + ' ' + trabajador.Ape_Mat.
+        IF t_busca = 'RFC' THEN t_regresa = trabajador.RFC.
+        IF t_busca = 'Curp' THEN t_regresa = trabajador.Curp.
+        IF t_busca = 'Id_banco' THEN t_regresa = STRING(trabajador.Id_banco).
+        IF t_busca = 'Clabe' THEN t_regresa = STRING(trabajador.Clabe).
+        IF t_busca = 'id_area' THEN t_regresa = STRING(trabajador.id_area).
+        IF t_busca = 'id_puesto' THEN t_regresa = STRING(trabajador.id_puesto).
+        IF t_busca = 'id_clasif_trab' THEN t_regresa = trabajador.id_clasif_trab.
+        IF t_busca = 'Id_nivel' THEN t_regresa = trabajador.Id_nivel.
+        IF t_busca = 'f_ing_coop' THEN t_regresa = "'" + STRING(trabajador.f_ing_coop,'99/99/9999').
+        IF t_busca = 'F_ingreso' THEN t_regresa = "'" + STRING(trabajador.F_ingreso,'99/99/9999').
+        IF t_busca = 'F_nac' THEN t_regresa =  "'" + STRING(trabajador.F_nac,'99/99/9999').
+        IF t_busca = 'F_Baja' THEN t_regresa =  "'" + STRING(trabajador.F_Baja,'99/99/9999').
+        IF t_busca = 'F_ing_issste' THEN t_regresa =  "'" + STRING(trabajador.F_ing_issste,'99/99/9999').
+        IF t_busca = 'Sueldo_mes' THEN t_regresa = STRING(trabajador.Sueldo_mes).
+        IF t_busca = 'Comp_garant' THEN t_regresa = STRING(trabajador.Comp_garant).
+        IF t_busca = 'Sexo' THEN t_regresa = STRING(trabajador.Sexo,'M/F').
+        IF t_busca = 'Categoria' THEN t_regresa = trabajador.Categoria.
+        IF t_busca = 'Domicilio' THEN t_regresa = trabajador.Domicilio.
+        IF t_busca = 'N_exterior' THEN t_regresa = trabajador.N_exterior.
+        IF t_busca = 'N_interior' THEN t_regresa = trabajador.N_interior.
+        IF t_busca = 'Colonia' THEN t_regresa = trabajador.Colonia.
+        IF t_busca = 'id_estado' THEN t_regresa = STRING(trabajador.id_estado).
+        IF t_busca = 'id_municipio' THEN t_regresa = STRING(trabajador.id_municipio).
+        IF t_busca = 'id_plaza' THEN t_regresa = STRING(trabajador.id_plaza).
+        IF t_busca = 'cp' THEN t_regresa = STRING(trabajador.cp).
+        IF t_busca = 'Telefono' THEN t_regresa = trabajador.Telefono.
+        IF t_busca = 'issste' THEN t_regresa = trabajador.issste.
+        IF t_busca = 'Estado_Civil' THEN t_regresa = STRING(trabajador.Estado_Civil).
+        IF t_busca = 'Ahorro_Solidario' THEN t_regresa = STRING(trabajador.Ahorro_Solidario).
+        IF t_busca = 'F_reing' THEN t_regresa = "'" + STRING(trabajador.F_reing,'99/99/9999').
+        IF t_busca = 'Potenciada_vida_inst' THEN t_regresa = STRING(trabajador.Potenciada_vida_inst).
+        IF t_busca = 'n_imss' THEN t_regresa = STRING(trabajador.n_imss).
+        IF t_busca = 'moe' THEN t_regresa = trabajador.moe.
+        IF t_busca = 'sdi' THEN t_regresa = STRING(trabajador.sdi).
+        IF t_busca = 'Militar_Civil' THEN t_regresa = trabajador.Militar_Civil.
+
+    END.
+    IF t_tabla[t_i] = '' THEN DO:
+        IF t_busca = 'AI' THEN t_reg_dec = t_AI.
+        IF t_busca = 'Antig_fed' THEN t_reg_dec = t_Antig_fed.
+        IF t_busca = 'Antig_tgm' THEN t_reg_dec = t_Antig_tgm.
+        IF t_busca = 'AS' THEN t_reg_dec = t_AS.
+        IF t_busca = 'ASCEAV' THEN t_reg_dec = t_ASCEAV.
+        IF t_busca = 'ASM' THEN t_reg_dec = t_ASM.
+        IF t_busca = 'BG' THEN t_reg_dec = t_BG.
+        IF t_busca = 'CDC' THEN t_reg_dec = t_CDC.
+        IF t_busca = 'CFSBM' THEN t_reg_dec = t_CFSBM.
+        IF t_busca = 'CG' THEN t_reg_dec = t_CG.
+        IF t_busca = 'CI' THEN t_reg_dec = t_CI.
+        IF t_busca = 'CSM' THEN t_reg_dec = t_CSM.
+        IF t_busca = 'DM' THEN t_reg_dec = t_DM.
+        IF t_busca = 'IA' THEN t_reg_dec = t_IA.
+        IF t_busca = 'ISR' THEN t_reg_dec = t_ISR.
+        IF t_busca = 'ISRTP' THEN t_reg_dec = t_ISRTP.
+        IF t_busca = 'NETO' THEN t_reg_dec = t_NETO.
+        IF t_busca = 'PQM' THEN t_reg_dec = t_PQM.
+        IF t_busca = 'PSMM' THEN t_reg_dec = t_PSMM.
+        IF t_busca = 'QUINQUENIO' THEN t_reg_dec = t_QUINQUENIO.
+        IF t_busca = 'SAR' THEN t_reg_dec = t_SAR.
+        IF t_busca = 'SB' THEN t_reg_dec = t_SB.
+        IF t_busca = 'SBCTA' THEN t_reg_dec = t_SBCTA.
+        IF t_busca = 'SBCTC' THEN t_reg_dec = t_SBCTC.
+        IF t_busca = 'SMB' THEN t_reg_dec = t_SMB.
+    END.
+END.
+
+
+{proc_nom.i}.
+{trae_ks.i}.
+

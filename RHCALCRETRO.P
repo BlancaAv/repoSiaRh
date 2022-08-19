@@ -1,0 +1,766 @@
+
+DEF INPUT PARAM t_id_trab AS INT NO-UNDO.
+DEF INPUT PARAM t_f_ini AS DATE NO-UNDO.
+DEF INPUT PARAM t_f_fin AS DATE NO-UNDO.
+DEF INPUT PARAM t_lote AS CHAR NO-UNDO.
+DEF INPUT PARAM t_trab_voy AS HANDLE NO-UNDO.
+
+DEF VAR t_voy AS INT NO-UNDO.
+DEF VAR t_tipo_nomina AS INT NO-UNDO.
+DEF VAR es_par AS LOG NO-UNDO.
+DEF VAR t_sigue AS INT NO-UNDO.
+DEF VAR t_proy AS DEC NO-UNDO.   /* Importe de las percepciones a proyectar */
+DEF VAR t_vigente AS LOG NO-UNDO.
+DEF VAR t_con_cve AS LOG NO-UNDO.
+DEF VAR t_s_perc AS DEC NO-UNDO.
+DEF VAR t_s_perc_g AS DEC NO-UNDO.
+DEF VAR t_s_perc_ord AS DEC NO-UNDO.
+DEF VAR t_s_ded AS DEC NO-UNDO.
+DEF VAR t_s_ded_pens AS DEC NO-UNDO.
+DEF VAR t_faltas AS DEC NO-UNDO EXTENT 3.
+DEF VAR t_imp_inc AS DEC NO-UNDO DECIMALS 6.
+DEF VAR t_imp_faltas AS DEC NO-UNDO DECIMALS 6.
+
+DEF VAR t_isr_mes AS DEC NO-UNDO.
+DEF VAR t_neto_pens AS DEC NO-UNDO.
+    
+DEF VAR t_nomina_ant AS DEC NO-UNDO.
+DEF VAR t_paga_patron AS DEC NO-UNDO.
+DEF VAR t_grav_mes AS DEC NO-UNDO.
+
+DEF VAR t_conc_anticipo AS CHAR NO-UNDO INITIAL 'D080'.
+DEF VAR t_conc_pension AS CHAR NO-UNDO INITIAL 'D091'.
+DEF VAR t_dias_faltas AS INT NO-UNDO.
+DEF VAR t_dias_licencia AS DEC NO-UNDO DECIMALS 6.
+DEF VAR t_factor_dias AS DEC NO-UNDO DECIMALS 6.
+DEF VAR t_factor_faltas AS DEC NO-UNDO DECIMALS 6.
+DEF VAR t_isr_ret AS DEC NO-UNDO.
+DEF VAR t_anios_serv AS INT NO-UNDO.
+
+DEF VAR t_conc_isn AS CHAR NO-UNDO INITIAL 'P123'.
+DEF VAR t_dias_retro AS INT NO-UNDO.
+
+DEF VAR t_iva AS DEC NO-UNDO.
+DEF VAR t_base_pens AS DEC NO-UNDO.
+
+{DEF_rh.i}.
+
+t_tipo_nomina = calendario_nomina.id_tipo_nomina.
+
+{vars_nom.i}. /* Define variables (t_ y k_ . Les da valor inicial, aunque despues toman el valor final */
+{DEF_pre.i}.
+{dias.i}.
+RUN trae_k_2('smd', OUTPUT t_smd, OUTPUT kp_smd).
+
+DEF BUFFER b_p FOR programada.
+DEF BUFFER b_cal FOR calendario_nomina.
+DEF TEMP-TABLE programada LIKE programada.
+FIND calendario_nomina WHERE
+     calendario_nomina.anio_nomina = vg_anio_nomina AND
+     calendario_nomina.n_nomina = vg_n_nomina NO-LOCK NO-ERROR.
+/*t_dias_periodo = calendario_nomina.f_termino - calendario_nomina.f_inicio + 1.*/
+t_dias_periodo = t_f_fin - t_f_ini + 1.
+t_dias_retro = t_f_fin - t_f_ini + 1.
+RUN iva.p(calendario_nomina.f_term, OUTPUT t_iva).
+FIND tipo_nomina OF calendario_nomina NO-LOCK.
+
+IF vg_anio_nomina / 4 = INT(vg_anio_nomina / 4) THEN t_dias[2] = 29.
+es_par = FALSE.
+IF calendario_nomina.id_tipo_nomina = 1 AND 
+   (DAY(calendario_nomina.f_termino) = t_dias[MONTH(calendario_nomina.f_termino)] OR 
+    DAY(calendario_nomina.f_termino) > 25) THEN DO:
+        es_par = TRUE.
+        t_nomina_ant = calendario_nomina.n_nomina - 1.
+END.
+
+FOR EACH b_p NO-LOCK WHERE  /* Programadas */
+         b_p.id_tipo_nomina = t_tipo_nomina AND
+         b_p.estatus = 2.
+
+    IF b_p.n_pagos > 0 AND b_p.contador >= b_p.n_pagos THEN NEXT.
+    IF b_p.limite > 0 AND b_p.acumulado >= b_p.limite THEN NEXT.
+    IF b_p.f_fin <> ? THEN
+        IF b_p.f_fin < t_f_ini THEN NEXT.
+    IF t_tipo_nomina = 1 THEN DO:
+        IF es_par AND b_p.aplicar_en = "1 Q" THEN NEXT.
+        IF es_par = FALSE AND b_p.aplicar_en = "2 Q" THEN NEXT.
+    END.
+    IF b_p.forma_calculo = 3 AND 
+       b_p.f_fin <= t_f_ini THEN NEXT.
+    IF b_p.forma_calculo = 5 THEN DO:
+        IF b_p.anio_nomina <> vg_anio_nomina OR
+           b_p.n_nomina <> vg_n_nomina THEN NEXT.
+    END.
+    DEF VAR t_checa1 AS CHAR NO-UNDO.
+    DEF VAR t_checa2 AS CHAR NO-UNDO.
+    IF b_p.anio_nomina > 0 AND b_p.n_nomina > 0 THEN DO:
+        t_checa1 = STRING(b_p.anio_nomina,'9999') + STRING(b_p.n_nomina,'999.99').
+        t_checa2 = STRING(vg_anio_nomina,'9999') + STRING(vg_n_nomina,'999.99').
+        IF t_checa1 > t_checa2 THEN NEXT.
+    END.
+
+    CREATE programada.
+    BUFFER-COPY b_p TO programada.
+END.
+
+/*DISPLAY STRING(TIME,'hh:mm:ss').*/
+DEF VAR t_cat_ant AS CHAR NO-UNDO.
+
+FOR EACH trabajador WHERE 
+    trabajador.estatus = 'A' AND
+    (IF t_id_trab = 0 THEN TRUE ELSE trabajador.id_trabajador = t_id_trab) AND 
+    trabajador.f_ingreso <= calendario.f_termino AND 
+    (IF trabajador.f_baja = ? THEN TRUE ELSE trabajador.f_baja >= calendario.f_inicio) NO-LOCK
+          BY trabajador.moe
+          BY trabajador.id_trab.
+
+    t_anios_serv = vg_anio_nomina - YEAR(trabajador.f_ingreso).
+    IF STRING(MONTH(trabajador.f_ingreso),'99') +
+       STRING(DAY(trabajador.f_ingreso),'99') >
+       STRING(MONTH(calendario.f_ini),'99') +
+       STRING(DAY(calendario.f_ini),'99')
+           THEN t_anios_serv = t_anios_serv - 1.
+    /*RUN calc_vigencia.*/
+    /*IF t_vigente = FALSE THEN NEXT.*/
+
+    /*IF FIRST-OF (trabajador.categoria) THEN DO:*/
+    IF t_cat_ant <> trabajador.moe THEN DO:
+        t_etapa_k = 1.
+        IF trabajador.moe <> 'M' THEN t_etapa_k = 2.
+        RUN trae_ks_1.
+        t_cat_ant = trabajador.moe.
+    END.
+    {antiguedad_nom.i calendario_nom.f_termino}.
+
+    FIND nomina_enc WHERE
+        nomina_enc.id_trab = trabajador.id_trab AND
+        nomina_enc.anio_nom = vg_anio_nomina AND
+        nomina_enc.n_nom = vg_n_nomina NO-ERROR.
+    IF trabajador.sueldo = 0 THEN DO:
+        IF AVAILABLE nomina_enc THEN DELETE nomina_enc.
+        NEXT.
+    END.
+    IF NOT AVAILABLE nomina_enc THEN DO:
+       CREATE nomina_enc.
+       ASSIGN nomina_enc.id_trab = trabajador.id_trab
+              nomina_enc.anio_nom = vg_anio_nomina
+              nomina_enc.n_nom = vg_n_nomina
+              nomina_enc.mes_nom = calendario_nom.mes_nom
+              nomina_enc.n_dias = calendario_nomina.f_termino - calendario_nomina.f_inicio + 1.
+    END.
+    FOR EACH hist_trab OF trabajador NO-LOCK WHERE
+       hist_trab.f_movto <= calendario.f_inicio 
+        BY hist_trab.f_movto DESC 
+        BY hist_trab.f_cap DESC
+        BY hist_trab.h_cap DESC.
+        LEAVE.
+    END.
+    IF AVAILABLE hist_trab THEN
+        BUFFER-COPY hist_trab TO nomina_enc.
+    ELSE 
+        BUFFER-COPY trabajador TO nomina_enc.
+    ASSIGN nomina_enc.quinquenio = t_quinquenio
+           nomina_enc.antig_fed = t_antig_fed.
+
+    t_trab_voy:SCREEN-VALUE = STRING(trabajador.id_trab).
+    PROCESS EVENTS.
+
+    IF calendario_nomina.id_tipo_nomina = 1 THEN DO:
+        nomina_enc.n_dias = t_dias_periodo.
+        IF trabajador.f_ingreso > calendario_nomina.f_ini THEN 
+            nomina_enc.n_dias = t_dias_periodo - (DAY(trabajador.f_ingreso) - DAY(calendario_nomina.f_ini)).
+    END.
+
+    nomina_enc.n_dias_retro = t_dias_retro.
+    IF calendario_nomina.id_tipo_nomina = 1 THEN DO:
+        FIND LAST sueldo OF trabajador WHERE
+            sueldo.f_sueldo <= t_f_fin.
+        /*
+        IF sueldo.anio_nomina = 0 THEN DO:
+           IF sueldo.f_sueldo < calendario_nomina.f_ini THEN
+                RUN RHDIASRET.P(sueldo.f_sueldo, calendario_nomina.f_ini, OUTPUT  t_dias_retro).
+
+           IF t_dias_retro < 0 THEN 
+               t_dias_retro = 0.
+           ELSE 
+               sueldo.en_proceso = TRUE.
+           IF sueldo.sueldo < trabajador.sueldo THEN 
+               ASSIGN t_dias_retro = 0
+                      sueldo.en_proceso = TRUE.
+        END.
+        nomina_enc.n_dias_retro = t_dias_retro.
+        */
+    END.
+    ELSE
+        FIND LAST sueldo OF trabajador NO-LOCK.
+    t_dias_faltas = 0.
+    t_dias_licencia = 0.
+    /*
+    t_dias_faltas = nomina_enc.n_faltas +     /* Dias a aplicar como faltas */
+                    nomina_enc.n_castigos.
+
+    t_dias_licencia = nomina_enc.n_licencias +     /* Dias a aplicar como licencias */
+                      (nomina_enc.n_incapac_50 * .5) +
+                      nomina_enc.n_incapac_sg.
+    */
+    /*
+    MESSAGE nomina_enc.n_licencias
+                  (nomina_enc.n_incapac_50 * .5) 
+                  nomina_enc.n_incapac_sg
+                  t_dias_licencia VIEW-AS ALERT-BOX.
+    */
+
+    IF t_dias_licencia > t_dias_periodo THEN t_dias_licencia = t_dias_periodo.
+    t_factor_dias = 1 - (t_dias_licencia / t_dias_periodo).
+    /*MESSAGE t_factor_dias t_dias_licencia nomina_enc.n_dias VIEW-AS ALERT-BOX.*/
+    t_factor_faltas = (t_dias_faltas / nomina_enc.n_dias).
+    /*MESSAGE t_factor_faltas t_factor_dias t_dias_licencia. */
+    /*
+    IF t_dias_faltas > 0 THEN
+        MESSAGE nomina_enc.id_trab t_dias_faltas t_factor_dias VIEW-AS ALERT-BOX.
+    */
+    {calculo_base_A.i}.
+
+    ASSIGN t_sigue = 0
+           t_s_perc = 0
+           t_s_perc_g = 0
+           t_s_perc_ord = 0
+           t_s_ded = 0
+           t_s_ded_pens = 0
+           t_imp_inc = 0
+           t_imp_faltas = 0
+           t_proy = 0.
+    PROCESS EVENTS.
+    IF calendario_nomina.id_tipo_nom = 1 THEN RUN prestamos.
+    FOR EACH programada WHERE 
+        programada.id_concepto BEGINS 'P' NO-LOCK.
+        PROCESS EVENTS.
+
+        IF nomina_enc.categoria <> programada.categoria AND programada.categoria <> '*' THEN NEXT.
+        IF programada.moe <> '*' THEN DO:
+            IF programada.moe = 'O' AND nomina_enc.moe <> 'O' THEN NEXT.
+            IF programada.moe = 'M' AND nomina_enc.moe = 'O' THEN NEXT.
+        END.
+
+        IF programada.nivel_aplica <> 0 THEN DO:
+            IF programada.nivel_aplica = 1 AND t_niv_trab < programada.id_nivel THEN NEXT.
+            IF programada.nivel_aplica = 2 AND t_niv_trab > programada.id_nivel THEN NEXT.
+        END.
+        IF programada.honorarios <> nomina_enc.honorarios THEN NEXT.
+        IF programada.id_trabajador > 0 AND 
+           programada.id_trabajador <> nomina_enc.id_trabajador THEN NEXT.
+        FIND concepto OF programada NO-LOCK.
+        RUN calc_pdp.
+        /*
+        IF calendario_nomina.id_tipo_nomina = 1 AND t_result <> 0 THEN DO:
+            IF nomina_enc.n_dias <> t_dias_periodo THEN
+                IF INDEX(t_conc_dias,concepto.id_concepto) = 0 THEN 
+                    t_result = t_result * nomina_enc.n_dias / t_dias_periodo. 
+        END.
+        */
+        IF t_result = 0 THEN NEXT.
+        RUN crea_pd_manual.
+    END.
+    /* ---------  DEDUCCIONES ------------ */
+
+    t_proy = 0.
+    
+    /*
+    IF es_par THEN DO:
+        t_proy = 0.
+        RUN suma_conc_mes.
+    END.
+    */
+
+    IF calendario_nomina.lleva_isr AND nomina_enc.honorarios = FALSE THEN DO:
+        IF es_par THEN DO:
+            RUN isr_dia.p(t_s_perc_g + t_proy + t_grav_mes 
+                      - ABS(t_factor_faltas * t_s_perc_ord), tipo_nomina.id_tarifa, t_dias_periodo, OUTPUT t_isr, OUTPUT t_se).
+            t_isr = t_isr - t_isr_ret.
+            IF t_isr < 0 THEN t_isr = 0.
+        END.
+        ELSE RUN isr_dia.p(t_s_perc_g + t_proy + t_grav_mes
+                       - ABS(t_factor_faltas * t_s_perc_ord), tipo_nomina.id_tarifa, t_dias_periodo, OUTPUT t_isr, OUTPUT t_se).
+        IF t_isr > 0 THEN DO:
+            CREATE pd_manual.
+            ASSIGN t_sigue = t_sigue + 1
+                   pd_manual.anio_nomina = vg_anio_nomina 
+                   pd_manual.n_nomina = vg_n_nomina
+                   pd_manual.id_trab = trabajador.id_trab
+                   pd_manual.n_cons_pd = t_sigue
+                   pd_manual.id_concepto = 'D001'
+                   pd_manual.importe = t_isr
+                   pd_manual.referencia = ''
+                   pd_manual.h_elab = TIME
+                   pd_manual.id_usuario = USERID('admin')
+                   pd_manual.f_transac = TODAY
+                   pd_manual.origen = 'RT'
+                   pd_manual.retro = TRUE
+                   pd_manual.lote = t_lote.
+        
+            t_s_ded = t_s_ded + pd_manual.importe.
+            t_s_ded_pens = t_s_ded_pens + pd_manual.importe.
+        END.
+    END.
+    /*
+    IF calendario_nomina.lleva_isr AND nomina_enc.honorarios = TRUE THEN DO:
+        /*RUN isr.p(t_bg, OUTPUT t_isr, OUTPUT t_se).*/
+        t_isr = t_s_perc_g * t_iva / 100.
+        IF t_isr > 0 THEN DO:
+            CREATE nomina_det.
+            ASSIGN t_sigue = t_sigue + 1
+                   nomina_det.id_trab = trabajador.id_trab
+                   nomina_det.anio_nom = vg_anio_nomina
+                   nomina_det.n_nom = vg_n_nomina
+                   nomina_det.id_concepto = 'P301'
+                   nomina_det.n_cons_det = t_sigue
+                   nomina_det.importe = t_isr
+                   nomina_det.origen = 'C'
+                   nomina_det.mes_nom = calendario_nomina.mes_acumula.
+            /*t_s_perc = t_s_perc + nomina_det.importe.*/
+        END.
+        t_isr = t_s_perc_g * .1.
+        IF t_isr > 0 THEN DO:
+            CREATE nomina_det.
+            ASSIGN t_sigue = t_sigue + 1
+                   nomina_det.id_trab = trabajador.id_trab
+                   nomina_det.anio_nom = vg_anio_nomina
+                   nomina_det.n_nom = vg_n_nomina
+                   nomina_det.id_concepto = 'D201'
+                   nomina_det.n_cons_det = t_sigue
+                   nomina_det.importe = t_isr
+                   nomina_det.origen = 'C'
+                   nomina_det.mes_nom = calendario_nomina.mes_acumula.
+            t_s_ded = t_s_ded + nomina_det.importe.
+            t_s_ded_pens = t_s_ded_pens + nomina_det.importe.
+        END.
+        t_isr = t_s_perc_g * t_iva * 2 / 3 / 100.
+        IF t_isr > 0 THEN DO:
+            CREATE nomina_det.
+            ASSIGN t_sigue = t_sigue + 1
+                   nomina_det.id_trab = trabajador.id_trab
+                   nomina_det.anio_nom = vg_anio_nomina
+                   nomina_det.n_nom = vg_n_nomina
+                   nomina_det.id_concepto = 'D202'
+                   nomina_det.n_cons_det = t_sigue
+                   nomina_det.importe = t_isr
+                   nomina_det.origen = 'C'
+                   nomina_det.mes_nom = calendario_nomina.mes_acumula.
+            t_s_ded = t_s_ded + nomina_det.importe.
+            t_s_ded_pens = t_s_ded_pens + nomina_det.importe.
+        END.
+    END.
+    */
+    /*IF nomina_enc.n_faltas <> 0 THEN RUN faltas_1.*/
+
+    /* IMSS */
+    RUN rhcalcimss.p(t_dias_periodo, 
+                     0,                 /* Incapacidades */
+                     0,                 /* Ausentismo */
+                     trabajador.sdi,
+                     OUTPUT t_result,
+                     OUTPUT t_paga_patron).
+
+    
+    CREATE pd_manual.
+    ASSIGN t_sigue = t_sigue + 1
+           pd_manual.anio_nomina = vg_anio_nomina 
+           pd_manual.n_nomina = vg_n_nomina
+           pd_manual.id_trab = trabajador.id_trab
+           pd_manual.n_cons_pd = t_sigue
+           pd_manual.id_concepto = 'D002'
+           pd_manual.importe = t_result
+           pd_manual.h_elab = TIME
+           pd_manual.id_usuario = USERID('admin')
+           pd_manual.f_transac = TODAY
+           pd_manual.origen = 'RT'
+           pd_manual.retro = TRUE
+           pd_manual.lote = t_lote.
+    t_s_ded = t_s_ded + pd_manual.importe.
+    t_s_ded_pens = t_s_ded_pens + pd_manual.importe.
+
+    t_result = t_paga_patron.
+    CREATE pd_manual.
+    ASSIGN t_sigue = t_sigue + 1
+           pd_manual.anio_nomina = vg_anio_nomina 
+           pd_manual.n_nomina = vg_n_nomina
+           pd_manual.id_trab = trabajador.id_trab
+           pd_manual.n_cons_pd = t_sigue
+           pd_manual.id_concepto = 'P002'
+           pd_manual.importe = t_result
+           pd_manual.h_elab = TIME
+           pd_manual.id_usuario = USERID('admin')
+           pd_manual.f_transac = TODAY
+           pd_manual.origen = 'RT'
+           pd_manual.retro = TRUE
+           pd_manual.lote = t_lote.
+    
+    FOR EACH programada WHERE 
+        programada.id_concepto BEGINS 'D' NO-LOCK.
+        PROCESS EVENTS.
+        
+        IF nomina_enc.categoria <> programada.categoria AND programada.categoria <> '*' THEN NEXT.
+        IF programada.moe <> '*' THEN DO:
+            IF programada.moe = 'O' AND nomina_enc.moe <> 'O' THEN NEXT.
+            IF programada.moe = 'M' AND nomina_enc.moe = 'O' THEN NEXT.
+        END.
+
+        IF programada.nivel_aplica <> 0 THEN DO:
+            IF programada.nivel_aplica = 1 AND t_niv_trab < programada.id_nivel THEN NEXT.
+            IF programada.nivel_aplica = 2 AND t_niv_trab > programada.id_nivel THEN NEXT.
+        END.
+        IF programada.honorarios <> nomina_enc.honorarios THEN NEXT.
+        IF programada.id_trabajador > 0 AND 
+           programada.id_trabajador <> trabajador.id_trabajador THEN NEXT.
+        FIND concepto OF programada NO-LOCK.
+        RUN calc_pdp.
+        IF t_result = 0 THEN NEXT.
+        /*
+        IF calendario_nomina.id_tipo_nomina = 1 AND t_result <> 0 THEN DO:
+            IF nomina_enc.n_dias <> t_dias_periodo THEN
+                IF INDEX(t_conc_dias,concepto.id_concepto) = 0 THEN 
+                    t_result = t_result * nomina_enc.n_dias / t_dias_periodo. 
+        END.
+        */
+        IF t_result = 0 THEN NEXT.
+        RUN crea_pd_manual.
+    END.
+    RUN pensiones.
+    t_voy = t_voy + 1.
+END.
+
+/*
+DISPLAY t_voy STRING(TIME,'hh:mm:ss').
+*/
+
+PROCEDURE calc_pdp.
+    t_result = 0.
+    IF concepto.formula <> '' AND programada.importe = 0 THEN 
+        RUN VALUE(concepto.id_concepto).
+    ELSE
+        t_result = programada.importe.
+    IF t_result = ? THEN t_result = 0.
+    IF concepto.antig_minima > 0 THEN DO:
+        IF t_anios_serv < concepto.antig_minima THEN t_result = 0.
+    END.
+    /*
+    IF concepto.id_concepto = 'd011' THEN
+        MESSAGE concepto.formula t_as t_result VIEW-AS ALERT-BOX.
+    */
+    /*
+    IF concepto.id_concepto = 'd054' THEN
+        MESSAGE t_result concepto.formula t_sb VIEW-AS ALERT-BOX.
+    */
+END.
+
+PROCEDURE suma_conc_mes.
+    DEF VAR t_n AS DEC NO-UNDO.
+    DEF VAR t_pasa AS LOG NO-UNDO.
+    t_grav_mes = 0.
+    FOR EACH nomina_det OF trabajador WHERE
+        nomina_det.anio_nom = vg_anio_nomina AND
+        nomina_det.n_nomina <> vg_n_nomina AND
+        nomina_det.mes_nom = calendario_nomina.mes_nom AND
+        nomina_det.id_concepto BEGINS 'P' NO-LOCK
+        BY nomina_det.n_nomina. 
+        IF t_n <> nomina_det.n_nomina THEN DO:
+            t_pasa = TRUE.
+            FIND b_cal OF nomina_det.
+            IF b_cal.id_tipo_nom <> 1 THEN t_pasa = FALSE.
+            t_pasa = TRUE.
+        END.
+        IF t_pasa THEN DO:
+            FIND concepto OF nomina_det NO-LOCK.
+            IF concepto.gravable THEN DO: 
+                t_grav_mes = t_grav_mes + nomina_det.importe.
+                /*MESSAGE nomina_det.anio_nom nomina_det.n_nom nomina_det.id_concepto nomina_det.importe VIEW-AS ALERT-BOX.*/
+            END.
+        END.
+    END.
+    t_isr_ret = 0.
+    FOR EACH nomina_det OF trabajador WHERE
+        nomina_det.anio_nom = vg_anio_nomina AND
+        nomina_det.n_nomina <> vg_n_nomina AND
+        nomina_det.mes_nom = calendario_nomina.mes_nom AND
+        (nomina_det.id_concepto = 'D001' OR 
+         nomina_det.id_concepto = 'D119') NO-LOCK.
+            IF nomina_det.id_concepto = 'D001' THEN t_isr_ret = t_isr_ret + nomina_det.importe.
+            IF nomina_det.id_concepto = 'D119' THEN t_grav_mes = t_grav_mes - nomina_det.importe.
+    END.
+END.
+
+PROCEDURE pensiones.
+    t_neto_pens = 0.
+    t_base_pens = 0.
+    FOR EACH pension OF trabajador WHERE 
+        pension.id_estatus = 1 NO-LOCK.
+        IF pension.id_tipo_nomina > 0 AND 
+           calendario.id_tipo_nomina <> pension.id_tipo_nomina THEN NEXT.
+        t_neto_pens = 0.
+        t_base_pens = 0.
+        
+        CASE pension.tipo_calculo.
+            WHEN 1 THEN DO: /* Importe fijo */
+                t_neto_pens = pension.valor.
+                t_base_pens = 0.
+            END.
+            WHEN 2 THEN DO: /* Sal min quinc */
+                t_neto_pens = k_smd * pension.valor.
+                t_base_pens = k_smd.
+            END.
+            WHEN 3 THEN DO: /* % Percep */
+                t_neto_pens = (t_s_perc - t_s_ded_pens) * pension.valor / 100.
+                t_base_pens = (t_s_perc - t_s_ded_pens).
+                /*MESSAGE trabajador.id_trab T_BASE_PENS T_S_PERC T_S_DED_PENS VIEW-AS ALERT-BOX.*/
+            END.
+            WHEN 4 THEN DO: /* % neto */
+                t_neto_pens = (t_s_perc - t_s_ded) * pension.valor / 100.
+                t_base_pens = t_s_perc - t_s_ded.
+            END.
+            WHEN 5 THEN DO: /* % conceptos */
+                FOR EACH pension_concepto OF pension NO-LOCK.
+                    FOR EACH nomina_det OF trabajador WHERE
+                        nomina_det.id_trab = trabajador.id_trab AND
+                        nomina_det.anio_nom = vg_anio_nomina AND
+                        nomina_det.n_nom = vg_n_nomina AND
+                        nomina_det.id_concepto = pension_concepto.id_concepto.
+                        FIND concepto OF nomina_det NO-LOCK.
+                        IF concepto.percep_ded THEN
+                            t_neto_pens = t_neto_pens + nomina_det.importe.
+                        ELSE 
+                            t_neto_pens = t_neto_pens - nomina_det.importe.
+                        RUN crea_nomina_pension(nomina_det.importe * pension.valor / 100).
+                    END.
+                END.
+                t_base_pens = t_neto_pens.
+                t_neto_pens = t_neto_pens * pension.valor / 100.
+            END.
+        END.
+        IF t_neto_pens > 0 THEN DO:
+            RUN crea_hdr_pension.
+            CREATE nomina_det.
+            ASSIGN t_sigue = t_sigue + 1
+                   nomina_det.id_trab = trabajador.id_trab
+                   nomina_det.anio_nom = vg_anio_nomina
+                   nomina_det.n_nom = vg_n_nomina
+                   nomina_det.id_concepto = t_conc_pension
+                   nomina_det.n_cons_det = t_sigue
+                   nomina_det.importe = t_neto_pens
+                   nomina_det.origen = 'PA'
+                   nomina_det.referencia = STRING(pension.n_pension)
+                   nomina_det.mes_nom = calendario_nomina.mes_acumula.
+        END.
+        /*
+        MESSAGE 'Pen ' pension.tipo_calculo skip
+            'base ' t_base_pens SKIP
+            'perc ' t_s_perc skip
+            'ded pen' t_s_ded_pens VIEW-AS ALERT-BOX.
+        */
+    END.
+END.
+
+PROCEDURE crea_hdr_pension.
+    CREATE nomina_pension_enc.
+    BUFFER-COPY nomina_enc TO nomina_pension_enc.
+    BUFFER-COPY pension TO nomina_pension_enc.
+    nomina_pension_enc.importe_enc = t_neto_pens. 
+    nomina_pension_enc.base = t_base_pens.
+END.
+
+PROCEDURE crea_nomina_pension.
+    DEF INPUT PARAM t_importe AS DEC NO-UNDO.
+    CREATE nomina_pension_det.
+    BUFFER-COPY nomina_det TO nomina_pension_det.
+    BUFFER-COPY pension TO nomina_pension_det.
+    nomina_pension_det.importe_det = t_importe.
+END.
+
+PROCEDURE faltas_1.
+    CREATE nomina_det.
+    ASSIGN t_sigue = t_sigue + 1
+           nomina_det.id_trab = trabajador.id_trab
+           nomina_det.anio_nom = vg_anio_nomina
+           nomina_det.n_nom = vg_n_nomina
+           nomina_det.n_cons_det = t_sigue
+           nomina_det.importe = ABS(t_factor_faltas * t_s_perc_ord)
+           nomina_det.origen = 'C'
+           nomina_det.mes_nom = calendario_nomina.mes_acumula.
+    /*
+    MESSAGE trabajador.id_trab 
+            t_factor_faltas
+            t_s_perc.
+    */
+    IF nomina_enc.n_faltas > 0 THEN DO:
+        ASSIGN nomina_det.id_concepto = 'D119'
+               t_s_perc = t_s_perc - nomina_det.importe
+               t_s_ded = t_s_ded + nomina_det.importe
+               t_s_perc_g = t_s_perc_g - nomina_det.importe.
+               /*t_s_ded_pens = t_s_ded_pens + nomina_det.importe.*/
+    END.
+
+    ELSE
+        ASSIGN nomina_det.id_concepto = 'P061'
+               t_s_perc = t_s_perc + nomina_det.importe
+               t_s_perc_g = t_s_perc_g + nomina_det.importe.
+END.
+
+PROCEDURE faltas.
+DEF VAR t_porc AS DEC NO-UNDO.
+DEF VAR t_dias AS INT NO-UNDO EXTENT 3.
+FOR EACH licencia OF trabajador NO-LOCK WHERE 
+    TRUE.
+    /*licencia.anio_nom = vg_anio_nomina AND
+    licencia.n_nom = vg_n_nomina.*/
+    t_porc = 0.
+    IF licencia.dias[1] <> 0 THEN t_dias[1] = t_dias[1] + licencia.dias[3].
+    IF licencia.dias[2] <> 0 THEN t_dias[2] = t_dias[2] + licencia.dias[2].
+    IF licencia.dias[3] <> 0 THEN t_dias[3] = t_dias[3] + licencia.dias[3].
+END.
+t_faltas = 0.
+t_faltas[2] = t_dias[2] * .5.
+t_faltas[3] = t_dias[3].
+END.
+
+PROCEDURE prestamos.
+    DEF VAR t_remanente AS DEC NO-UNDO DECIMALS 3.
+    DEF VAR t_imp AS DEC NO-UNDO.
+    FOR EACH prestamo OF trabajador NO-LOCK WHERE 
+        prestamo.id_estatus = 3.
+        t_imp = prestamo.pago_quinc.
+        t_remanente = prestamo.importe_prestamo - prestamo.pagado - prestamo.pago_caja.
+        IF t_remanente <= 0 THEN NEXT.
+        IF t_remanente < t_imp THEN t_imp = t_remanente.
+        IF prestamo.n_pagos - prestamo.lleva = 1 THEN
+            t_imp = t_remanente.
+
+        CREATE nomina_det.
+        ASSIGN t_sigue = t_sigue + 1
+               nomina_det.id_trab = trabajador.id_trab
+               nomina_det.anio_nom = vg_anio_nomina
+               nomina_det.n_nom = vg_n_nomina
+               nomina_det.id_concepto = t_conc_anticipo
+               nomina_det.n_cons_det = t_sigue
+               nomina_det.importe = t_imp
+               nomina_det.origen = 'PP'
+               nomina_det.obs_sist = 'PRESTAMO ' + STRING(prestamo.n_prestamo)
+               nomina_det.referencia = 'Pago ' + STRING(prestamo.lleva + 1) + ' De ' + STRING(prestamo.n_pagos)
+               nomina_det.mes_nom = calendario_nomina.mes_acumula.
+        t_s_ded = t_s_ded + nomina_det.importe.
+    END.
+END.
+
+
+/*-----------------------------------------*/
+
+PROCEDURE crea_retro.
+
+    /*
+    DEF BUFFER b_det FOR nomina_det.
+    CREATE b_det.
+    BUFFER-COPY nomina_det EXCEPT n_cons_det TO b_det.
+    ASSIGN t_sigue = t_sigue + 1
+           b_det.n_cons_det = t_sigue
+           b_det.retro = TRUE
+           b_det.importe = t_dias_retro * nomina_det.importe / 15.
+    IF concepto.percep_deduc = TRUE THEN DO:
+        t_s_perc = t_s_perc + b_det.importe.
+        IF concepto.gravable THEN t_s_perc_g = t_s_perc_g + b_det.importe.
+    END.
+    ELSE t_s_ded = t_s_ded + b_det.importe.
+    */
+END.
+
+/*-------------------------------------------*/
+
+PROCEDURE Calc_Vigencia.
+    DEF VAR t_hubo AS LOG NO-UNDO.
+    
+    t_vigente = FALSE.
+    t_con_cve = FALSE.
+    FOR EACH hist_trab OF trabajador NO-LOCK WHERE 
+        hist_trab.f_movto < calendario.f_termino
+        BY hist_trab.f_movto DESC
+        BY hist_trab.h_capt DESC.
+        IF hist_trab.id_plaza <> 0 THEN t_con_cve = TRUE. 
+        t_hubo = TRUE.
+        FIND tipo_mov_per OF hist_trab NO-LOCK.
+        /*DISPLAY f_movto origen DESC_tipo .*/
+
+        /*MESSAGE hist_trab.f_movto hist_trab.cambios 
+                tipo_mov_per.origen VIEW-AS ALERT-BOX.*/
+        IF hist_trab.cambios = 'Primer registro' AND
+            trabajador.estatus = 'B' THEN DO:
+            LEAVE.
+        END.
+        /*
+        MESSAGE f_movto STRING(h_capt) desc_tipo_mov tipo_mov_per.origen
+            VIEW-AS ALERT-BOX.
+        */
+        IF tipo_mov_per.origen = 'C' THEN DO:
+            t_vigente = TRUE.
+            NEXT.
+        END.
+        IF tipo_mov_per.origen = 'B' THEN DO:
+            IF hist_trab.f_movto >= calendario.f_ini THEN t_vigente = TRUE.
+            LEAVE.
+        END.
+        IF tipo_mov_per.origen = 'A' THEN DO:
+            t_vigente = TRUE.
+            LEAVE.
+        END.
+    END.
+    IF t_hubo = FALSE THEN DO:
+        IF trabajador.estatus = 'A' THEN t_vigente = TRUE.
+        IF trabajador.id_plaza <> 0 THEN t_con_cve = TRUE.
+    END.
+END.
+
+{proc_nom.i}.       /*   Hace ceros las variable t_,  busca sueldo, calcula antig.  */
+{calculo_conc.i}.   /*   Cálculo de cada concepto */
+{trae_ks.i}.
+
+PROCEDURE crea_pd_manual.
+    IF t_sigue = 0 THEN DO:
+        FIND LAST pd_manual WHERE 
+              pd_manual.anio_nomina = vg_anio_nomina AND
+              pd_manual.n_nomina = vg_n_nomina AND
+              pd_manual.id_trab = trabajador.id_trab NO-LOCK NO-ERROR.
+        IF AVAILABLE pd_manual THEN 
+            t_sigue = pd_manual.n_cons_pd + 1.
+    END.
+    ELSE
+        t_sigue = t_sigue + 1.
+    CREATE pd_manual.
+    ASSIGN pd_manual.anio_nomina = vg_anio_nomina 
+           pd_manual.n_nomina = vg_n_nomina
+           pd_manual.id_trab = trabajador.id_trab
+           pd_manual.n_cons_pd = t_sigue
+           pd_manual.id_concepto = programada.id_concepto
+           pd_manual.importe = t_result
+           pd_manual.referencia = programada.referencia
+           pd_manual.n_programada = programada.n_programada
+           pd_manual.h_elab = TIME
+           pd_manual.id_usuario = USERID('admin')
+           pd_manual.f_transac = TODAY
+           pd_manual.origen = 'RT'
+           pd_manual.retro = TRUE
+           pd_manual.lote = t_lote.
+
+    /*
+    IF concepto.ordinaria AND t_factor_dias <> 1 THEN DO:
+        ASSIGN t_result = t_result * t_factor_dias.
+        IF t_result = ? THEN t_result = 0.
+        pd_manual.importe = t_result.
+    END.
+    */
+    IF concepto.percep_deduc = TRUE THEN DO:
+        IF concepto.absorve_emp = FALSE THEN t_s_perc = t_s_perc + pd_manual.importe.
+        IF concepto.gravable THEN t_s_perc_g = t_s_perc_g + pd_manual.importe.
+        IF concepto.proyecta THEN t_proy = t_proy + pd_manual.importe.
+        IF concepto.ordinaria AND concepto.absorve_empresa = FALSE THEN t_s_perc_ord = t_s_perc_ord + pd_manual.importe.
+    END.
+    ELSE DO:
+        t_s_ded = t_s_ded + pd_manual.importe.
+        IF concepto.juega_pension THEN t_s_ded_pens = t_s_ded_pens + pd_manual.importe.
+    END.
+END.

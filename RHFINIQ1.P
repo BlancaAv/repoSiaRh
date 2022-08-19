@@ -1,0 +1,172 @@
+/*
+
+    Cálculo de finiquitos
+
+*/
+
+DEF INPUT PARAM t_id_trab AS INT NO-UNDO.
+DEF INPUT PARAM t_f_finiq AS DATE NO-UNDO.
+DEF INPUT PARAM t_dias_mas AS INT NO-UNDO.
+
+{DEF_rh.i}.
+{vars_nom.i}. /* Define variables (t_ y k_ . Les da valor inicial, aunque despues toman el valor final */
+{DEF_pre.i}.
+{dias.i}.
+RUN trae_k_2('smd', OUTPUT t_smd, OUTPUT kp_smd).
+DEF VAR t_anio_nomina AS INT NO-UNDO.
+DEF VAR t_n_nomina AS DEC NO-UNDO.
+DEF VAR t_sigue AS INT NO-UNDO.
+DEF VAR t_s_perc AS DEC NO-UNDO.
+DEF VAR t_s_ded AS DEC NO-UNDO.
+DEF VAR t_s_perc_g AS DEC NO-UNDO.
+DEF VAR t_s_ded_pens AS DEC NO-UNDO.
+DEF VAR t_dias_agui AS INT NO-UNDO.
+DEF VAR t_dias_vac AS INT NO-UNDO INITIAL 20.
+DEF VAR t_f_ini AS DATE NO-UNDO.
+DEF VAR t_antig AS INT NO-UNDO.
+DEF VAR t_fac_agui AS DEC DECIMALS 10 NO-UNDO FORMAT '>9.999999999'.
+DEF VAR t_dias_pago_agui AS DEC DECIMALS 10 NO-UNDO FORMAT '>9.999999999'.
+DEF VAR t_importe_agui AS DEC DECIMALS 10 NO-UNDO.
+DEF VAR t_fac_vac AS DEC DECIMALS 10 NO-UNDO FORMAT '>9.999999999'.
+DEF VAR t_dias_pago_vac AS DEC DECIMALS 10 NO-UNDO FORMAT '>9.999999999'.
+DEF VAR t_importe_vac AS DEC DECIMALS 10 NO-UNDO.
+DEF VAR t_prima_vac AS DEC DECIMALS 10 NO-UNDO.
+    
+DEF VAR t_agui_gravable AS DEC NO-UNDO.
+DEF VAR t_agui_exento AS DEC NO-UNDO.
+DEF VAR t_prima_gravable AS DEC DECIMALS 10 NO-UNDO.
+DEF VAR t_prima_exenta AS DEC DECIMALS 10 NO-UNDO.
+
+t_anio_nomina = vg_anio_nomina.
+t_n_nomina = vg_n_nomina.
+
+FIND calendario_nomina WHERE
+     calendario_nomina.anio_nomina = t_anio_nomina AND
+     calendario_nomina.n_nomina = t_n_nomina NO-LOCK NO-ERROR.
+
+FIND trabajador WHERE
+      trabajador.id_trabajador = t_id_trab NO-LOCK.
+FIND nomina_enc WHERE 
+       nomina_enc.id_trab = trabajador.id_trab AND
+       nomina_enc.anio_nom = t_anio_nomina AND
+       nomina_enc.n_nom = t_n_nomina NO-ERROR.
+
+IF AVAILABLE nomina_enc THEN DO:
+    FOR EACH nomina_det OF nomina_enc.
+        DELETE nomina_det.
+    END.
+    DELETE nomina_enc.
+END.
+
+CREATE nomina_enc.
+ASSIGN nomina_enc.id_trab = trabajador.id_trab
+       nomina_enc.anio_nom = t_anio_nomina
+       nomina_enc.n_nom = t_n_nomina
+       nomina_enc.mes_nom = calendario_nom.mes_nom.
+BUFFER-COPY trabajador TO nomina_enc.
+ASSIGN nomina_enc.quinquenio = t_quinquenio
+           nomina_enc.antig_fed = t_antig_fed.
+RUN trae_ks_1.
+{calculo_base_A.i}.
+DEF VAR t_sal_dia AS DEC DECIMALS 10 NO-UNDO.
+t_sal_dia = (trabajador.sueldo_mes + trabajador.comp_garant) / 30.
+t_dias_agui = 40. /* cambio era 40.*/
+IF trabajador.moe <> 'M' THEN t_dias_agui = 46.
+
+t_f_ini = DATE(1,1,YEAR(t_f_finiq)).
+IF trabajador.f_ingreso > t_f_ini THEN t_f_ini = trabajador.f_ingreso.
+t_antig = t_f_finiq - t_f_ini + 1.
+
+t_fac_agui = t_dias_agui / 365.
+t_dias_pago_agui = t_fac_agui * t_antig.
+t_importe_agui = t_dias_pago_agui * t_sal_dia.
+
+t_agui_exento = 30 * t_uma.
+IF t_agui_exento > t_importe_agui THEN
+    t_agui_exento = t_importe_agui.
+t_agui_gravable = t_importe_agui - t_agui_exento.
+
+t_fac_vac = t_dias_vac / 365.
+t_dias_pago_vac = t_fac_vac * t_antig.
+
+t_importe_vac = t_dias_pago_vac * (trabajador.sueldo_mes + trabajador.comp_garant + t_dm) / 30.
+t_prima_vac = t_dias_pago_vac * (trabajador.sueldo_mes + trabajador.comp_garant) / 30.
+t_prima_vac = t_prima_vac * .33.
+
+t_prima_exenta = 15 * t_uma.
+IF t_prima_exenta > t_prima_vac THEN
+    t_prima_exenta = t_prima_vac.
+t_prima_gravable = t_prima_vac - t_prima_exenta.
+
+IF t_dias_mas > 0 THEN DO:
+    RUN crea_det(t_sb * t_dias_mas / 30, 'P007').
+    RUN crea_det(t_cg * t_dias_mas / 30, 'P029').
+    RUN crea_det(t_dm * t_dias_mas / 30, 'P038').
+END.
+
+RUN crea_det(t_agui_gravable, 'P129').
+RUN crea_det(t_agui_exento, 'P130').
+RUN crea_det(t_importe_vac, 'P213').
+RUN crea_det(t_prima_gravable, 'P127').
+RUN crea_det(t_prima_exenta, 'P128').
+
+RUN sumas.
+PROCEDURE crea_det.
+    DEF INPUT PARAM t_result AS DEC NO-UNDO.
+    DEF INPUT PARAM t_concep AS CHAR NO-UNDO.
+    IF t_result <= 0 THEN RETURN.
+    FIND concepto WHERE
+         concepto.id_concepto = t_concep NO-LOCK.
+    CREATE nomina_det.
+    ASSIGN t_sigue = t_sigue + 1
+           nomina_det.id_trab = trabajador.id_trab
+           nomina_det.anio_nom = t_anio_nomina
+           nomina_det.n_nom = t_n_nomina
+           nomina_det.id_concepto = t_concep
+           nomina_det.n_cons_det = t_sigue
+           nomina_det.importe = t_result
+           nomina_det.origen = 'C'
+           nomina_det.mes_nom = calendario_nomina.mes_acumula.
+
+
+    IF concepto.percep_deduc = TRUE THEN DO:
+        IF concepto.se_imprime THEN t_s_perc = t_s_perc + nomina_det.importe.
+        IF concepto.gravable THEN t_s_perc_g = t_s_perc_g + nomina_det.importe.
+    END.
+    ELSE DO:
+        t_s_ded = t_s_ded + nomina_det.importe.
+        IF concepto.juega_pension THEN t_s_ded_pens = t_s_ded_pens + nomina_det.importe.
+    END.
+END.
+
+PROCEDURE sumas.
+    t_s_perc = 0.
+    t_s_perc_g = 0.
+    t_s_ded = 0.
+    t_s_ded_pens = 0.
+
+    FOR EACH nomina_det OF nomina_enc NO-LOCK.
+        FIND concepto OF nomina_det NO-LOCK.
+        IF concepto.percep_deduc = TRUE THEN DO:
+            IF concepto.se_imprime THEN t_s_perc = t_s_perc + nomina_det.importe.
+            IF concepto.gravable THEN t_s_perc_g = t_s_perc_g + nomina_det.importe.
+        END.
+        ELSE DO:
+            t_s_ded = t_s_ded + nomina_det.importe.
+            IF concepto.juega_pension THEN t_s_ded_pens = t_s_ded_pens + nomina_det.importe.
+        END.
+    END.
+    ASSIGN nomina_enc.n_dias = 1
+           nomina_enc.gravable = t_s_perc_g
+           nomina_enc.exento = t_s_perc - t_s_perc_g
+           nomina_enc.suma_deduc = t_s_ded
+           nomina_enc.suma_perc = t_s_perc.
+    ASSIGN nomina_enc.sbc = t_s_perc / (nomina_enc.n_dias - 
+                nomina_enc.dias_inc_emp - nomina_enc.dias_inc_imss -
+                nomina_enc.n_faltas - nomina_enc.N_Incapac_SG)
+           nomina_enc.sdo_base_cot = nomina_enc.sbc.
+END.
+
+{proc_nom.i}.       /*   Hace ceros las variable t_,  busca sueldo, calcula antig.  */
+{calculo_conc.i}.   /*   Cálculo de cada concepto */
+{trae_ks.i}.

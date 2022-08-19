@@ -1,0 +1,17 @@
+{excel.i}.
+
+RUN abre_excel.
+t_ren = 2.
+FOR EACH trabajador NO-LOCK WHERE
+    estatus = 'A'.
+    t_ren = t_ren + 1.
+    RUN pinta(trabajador.id_trab, t_ren,1).
+    RUN pinta({adrhnom0.i}, t_ren,2).
+    RUN pinta(trabajador.id_nivel, t_ren,5).
+    IF trabajador.seg_sep_ind > 0 THEN RUN pinta(trabajador.seg_sep_ind, t_ren,6).
+    IF trabajador.ahorro_solidario > 0 THEN RUN pinta(trabajador.ahorro_solidario, t_ren,7).
+    IF trabajador.potenciada_vida > 0 THEN RUN pinta(trabajador.potenciada_vida, t_ren,8).
+    IF trabajador.quinquenio > 0 THEN RUN pinta(trabajador.quinquenio, t_ren,9).
+END.
+RUN cierra_excel.
+MESSAGE 'Proceso Concluido' VIEW-AS ALERT-BOX.

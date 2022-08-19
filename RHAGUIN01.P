@@ -1,0 +1,339 @@
+/*
+
+    Cálculo de aguinaldo
+
+*/
+
+{DEF_rh.i}.
+{vars_nom.i}. /* Define variables (t_ y k_ . Les da valor inicial, aunque despues toman el valor final */
+{DEF_pre.i}.
+{dias.i}.
+
+{excel.i}.
+DEF VAR t_trab AS INT NO-UNDO.
+DEF BUFFER b_enc FOR nomina_enc.
+DEF VAR t_n_dias AS INT NO-UNDO.
+DEF VAR t_n_faltas AS DEC NO-UNDO.
+DEF VAR t_dias_inc_emp AS DEC NO-UNDO.
+DEF VAR t_dias_inc_imss AS DEC NO-UNDO.
+DEF VAR  t_dias_inc_sg AS DEC NO-UNDO.
+DEF VAR t_dias_tot AS DEC NO-UNDO.
+DEF VAR t_dias_agui AS DEC NO-UNDO DECIMALS 6.
+DEF VAR t_dias_pagar AS DEC NO-UNDO DECIMALS 6.
+DEF VAR t_fact_dias AS DEC NO-UNDO DECIMALS 8.
+DEF VAR t_sdo_dia AS DEC NO-UNDO DECIMALS 6.
+DEF VAR t_ahorro AS DEC NO-UNDO.
+
+DEF VAR t_aguinaldo AS DEC NO-UNDO DECIMALS 6.
+DEF VAR t_adicional AS DEC NO-UNDO.
+DEF VAR t_sigue AS INT NO-UNDO.
+DEF VAR t_exento AS DEC NO-UNDO.
+DEF VAR t_gravable AS DEC NO-UNDO.
+DEF VAR t_acum AS DEC NO-UNDO DECIMALS 6.
+DEF VAR t_mens AS DEC NO-UNDO DECIMALS 6.
+DEF VAR t_isr_acum AS DEC NO-UNDO.
+DEF VAR t_isr_mens AS DEC NO-UNDO.
+DEF VAR t_subs AS DEC NO-UNDO.
+DEF VAR t_dias_base AS DEC NO-UNDO.
+
+DEF TEMP-TABLE wrk
+    FIELD id_trab AS INT
+    FIELD f_ini AS DATE
+    FIELD f_fin AS DATE
+    FIELD id_nivel AS CHAR
+    FIELD sueldo_mes AS DEC
+    FIELD comp_garan AS DEC
+    FIELD n_dias AS INT
+    FIELD n_faltas AS DEC
+    FIELD dias_inc_emp AS INT
+    FIELD dias_inc_imss AS INT
+    FIELD dias_inc_sg AS INT.
+
+FIND calendario_nomina WHERE
+     calendario_nomina.anio_nomina = vg_anio_nomina AND
+     calendario_nomina.n_nomina = vg_n_nomina NO-LOCK NO-ERROR.
+IF calendario_nomina.id_tipo_nomina <> 3 THEN DO:
+    {ERROR.i "No estamos en la nómina de aguinaldo"}.
+END.
+
+FIND calendario_nomina WHERE
+     calendario_nomina.anio_nomina = vg_anio_nomina AND
+     calendario_nomina.n_nomina = vg_n_nomina and
+     id_tipo_nomina = 3 NO-LOCK NO-ERROR.
+
+FOR EACH nomina_enc WHERE 
+       nomina_enc.anio_nom = vg_anio_nomina AND
+       nomina_enc.n_nom = vg_n_nomina /*AND
+       nomina_enc.id_trab = t_trab*/ .
+    PROCESS EVENTS.
+    FOR EACH nomina_det OF nomina_enc.
+        DELETE nomina_det.
+    END.
+    DELETE nomina_enc.
+END.
+
+t_ren = 2.
+
+/*RUN abre_excel.*/
+RUN trae_k_2('smd', OUTPUT t_smd, OUTPUT kp_smd).
+
+FOR EACH trabajador WHERE estatus = 'A' /*AND 
+         trabajador.id_trab = t_trab*/ NO-LOCK.
+    PROCESS EVENTS.
+    CREATE nomina_enc.
+    ASSIGN nomina_enc.id_trab = trabajador.id_trab
+           nomina_enc.anio_nom = vg_anio_nomina
+           nomina_enc.n_nom = vg_n_nomina
+           nomina_enc.mes_nom = calendario_nom.mes_nom.
+    BUFFER-COPY trabajador TO nomina_enc.
+    ASSIGN nomina_enc.quinquenio = t_quinquenio
+           nomina_enc.antig_fed = t_antig_fed.
+
+    t_etapa_k = 1.
+    IF trabajador.moe <> 'M' THEN t_etapa_k = 2.
+    {calculo_base_A.i}.
+    RUN trae_k_2('transp', OUTPUT t_transp, OUTPUT kp_transp).
+    RUN trae_k_2('dm', OUTPUT t_dm, OUTPUT kp_dm).
+    RUN trae_k_2('psmm', OUTPUT t_psmm, OUTPUT kp_psmm).
+
+    RUN tabla_temporal.
+    RUN calcula_dias.
+    t_dias_agui = 40. /* cambio era 40.*/
+    IF trabajador.moe <> 'M' THEN t_dias_agui = 46.
+    
+    t_aguinaldo = 0.
+    FOR EACH wrk.
+        t_dias_agui = 40. /* cambio era 40.*/
+        IF wrk.comp_garan = 0 THEN t_dias_agui = 46.
+        t_sdo_dia = (wrk.sueldo + wrk.comp_garan) / 30.
+        t_fact_dias = t_dias_agui / 365.
+        /*MESSAGE t_fact_dias t_dias_agui VIEW-AS ALERT-BOX.*/
+        t_dias_pagar = (wrk.n_dias - wrk.n_faltas - wrk.dias_inc_emp - wrk.dias_inc_imss - wrk.dias_inc_sg) * t_fact_dias.
+        t_aguinaldo = t_aguinaldo + (t_dias_pagar * t_sdo_dia).
+        
+        /*DISPLAY t_sdo_dia FORMAT '>>>,>>9.999999'
+                t_dias_agui
+                t_fact_dias  FORMAT '>>>,>>9.999999'
+                t_dias_pagar  FORMAT '>>>,>>9.999999'
+                t_aguinaldo FORMAT '>>>,>>9.999999'.
+        DISPLAY wrk.*/
+        
+    END.
+    t_aguinaldo = t_aguinaldo / 2.
+
+    t_ahorro = IF  (trabajador.sueldo_mes + trabajador.comp_gar)  /  30 * 30 * .13  GT    t_smd   *  30  * 1.3 THEN
+        t_smd  *  30  * 1.3 
+    ELSE 
+        (trabajador.sueldo_mes + trabajador.comp_gar) /  30 *  30  * .13. 
+    IF trabajador.moe = 'M' THEN t_ahorro = 0.
+
+    t_exento = 89.62 * 15.
+    t_gravable = t_aguinaldo - t_exento.
+    IF t_gravable < 0 THEN DO:
+        t_gravable = 0.
+        t_exento = t_aguinaldo.
+    END.
+    
+    t_acum = trabajador.sueldo_mes + trabajador.comp_gar + t_gravable + t_ahorro + t_dm + T_PSMM + t_transp.
+    /*MESSAGE 'Acum' t_acum SKIP
+            'Sdo base' trabajador.sueldo_mes SKIP
+            'Comp gar' trabajador.comp_gar SKIP
+            'Agui ' t_gravable SKIP 
+            'Ahorro' t_ahorro SKIP
+            'Desp' t_dm SKIP
+            'Prev soc' T_PSMM SKIP
+            'Transp'  t_transp VIEW-AS ALERT-BOX.*/
+    RUN isr.p(t_acum, 'mens 17', OUTPUT t_isr_acum, OUTPUT t_subs).
+    t_mens = trabajador.sueldo_mes + trabajador.comp_gar + t_ahorro + t_dm + T_PSMM + t_transp.
+    RUN isr.p(t_mens, 'mens 17', OUTPUT t_isr_mens, OUTPUT t_subs).
+    
+    /*
+    MESSAGE 'Base 1' t_acum 
+            'isr acum' t_isr_acum SKIP
+            'Base 2' t_mens SKIP
+            'isr mens' t_isr_mens SKIP
+            'dm ' t_dm SKIP
+            'psmm' t_psmm SKIP
+            'transp' t_transp VIEW-AS ALERT-BOX.
+    */
+    t_adicional = t_isr_acum - t_isr_mens.
+    
+    /*
+    IF t_acum > 0 THEN
+        RUN piramida_isr.p(t_acum - t_isr_mens, FALSE, OUTPUT t_adicional).
+    t_adicional = t_adicional - t_isr_mens.
+    */
+
+    RUN crea_det(t_adicional,'P125').
+    RUN crea_det(t_gravable,'P129').
+    RUN crea_det(t_exento,'P130').
+    RUN crea_det(t_adicional,'D001').
+
+    RUN sumas.
+    nomina_enc.gravable = t_gravable + t_adicional.
+    nomina_enc.exento = t_exento.
+END.
+
+
+PROCEDURE crea_det.
+    DEF INPUT PARAM t_result AS DEC NO-UNDO.
+    DEF INPUT PARAM t_concep AS CHAR NO-UNDO.
+    IF t_result <= 0 THEN RETURN.
+    FIND concepto WHERE
+         concepto.id_concepto = t_concep NO-LOCK.
+    CREATE nomina_det.
+    ASSIGN t_sigue = t_sigue + 1
+           nomina_det.id_trab = trabajador.id_trab
+           nomina_det.anio_nom = vg_anio_nomina
+           nomina_det.n_nom = vg_n_nomina
+           nomina_det.id_concepto = t_concep
+           nomina_det.n_cons_det = t_sigue
+           nomina_det.importe = t_result
+           nomina_det.origen = 'C'
+           nomina_det.mes_nom = calendario_nomina.mes_acumula.
+END.
+
+PROCEDURE calcula_dias.
+t_n_dias = 0.
+t_n_faltas = 0.
+t_dias_inc_emp = 0.
+t_dias_inc_imss = 0.
+t_dias_inc_sg = 0.
+IF trabajador.f_ingreso >= calendario_nomina.f_ini THEN
+    t_dias_tot = calendario_nomina.f_term - trabajador.f_ingreso + 1.
+ELSE
+    t_dias_tot = calendario_nomina.f_term - calendario_nomina.f_ini + 1.
+
+FOR EACH b_enc OF trabajador WHERE 
+    b_enc.n_nomina > 17 AND
+    b_enc.n_nomina = INT(b_enc.n_nomina) NO-LOCK.
+    t_n_dias = t_n_dias + b_enc.n_dias.
+    t_n_faltas = t_n_faltas + b_enc.n_faltas.
+    t_dias_inc_emp = t_dias_inc_emp + b_enc.dias_inc_emp.
+    t_dias_inc_imss = t_dias_inc_imss + b_enc.dias_inc_imss.
+    t_dias_inc_sg = t_dias_inc_sg + b_enc.n_incapac_sg.
+    IF b_enc.n_faltas + b_enc.dias_inc_emp + b_enc.dias_inc_imss + b_enc.n_incapac_sg > 0 THEN DO:
+        FIND FIRST wrk.
+        ASSIGN wrk.n_faltas = wrk.n_faltas + b_enc.n_faltas
+               wrk.dias_inc_emp = wrk.dias_inc_emp + b_enc.dias_inc_emp
+               wrk.dias_inc_imss = wrk.dias_inc_imss + b_enc.dias_inc_imss
+               wrk.dias_inc_sg = wrk.dias_inc_sg + b_enc.n_incapac_sg.
+    END.
+END.
+
+t_dias_tot = t_dias_tot - t_n_faltas - t_dias_inc_emp - t_dias_inc_imss - t_dias_inc_sg.
+END.
+
+PROCEDURE sumas.
+    DEF VAR t_s_perc AS DEC NO-UNDO.
+    DEF VAR t_s_perc_g AS DEC NO-UNDO.
+    DEF VAR t_s_ded AS DEC NO-UNDO.
+    DEF VAR t_s_ded_pens AS DEC NO-UNDO.
+        t_s_perc = 0.
+        t_s_perc_g = 0.
+        t_s_ded = 0.
+        t_s_ded_pens = 0.
+
+        FOR EACH nomina_det OF nomina_enc NO-LOCK.
+            FIND concepto OF nomina_det NO-LOCK.
+            IF concepto.percep_deduc = TRUE THEN DO:
+                IF concepto.se_imprime THEN t_s_perc = t_s_perc + nomina_det.importe.
+                IF concepto.gravable THEN t_s_perc_g = t_s_perc_g + nomina_det.importe.
+            END.
+            ELSE DO:
+                t_s_ded = t_s_ded + nomina_det.importe.
+                IF concepto.juega_pension THEN t_s_ded_pens = t_s_ded_pens + nomina_det.importe.
+            END.
+        END.
+        ASSIGN nomina_enc.gravable = t_s_perc_g
+               nomina_enc.exento = t_s_perc - t_s_perc_g
+               nomina_enc.suma_deduc = t_s_ded
+               nomina_enc.suma_perc = t_s_perc
+               nomina_enc.n_dias = t_dias_tot
+               nomina_enc.n_faltas = t_n_faltas
+               nomina_enc.dias_inc_emp = t_dias_inc_emp
+               nomina_enc.dias_inc_imss = t_dias_inc_imss
+               nomina_enc.n_incapac_sg = t_dias_inc_sg.
+
+        ASSIGN nomina_enc.sbc = t_s_perc / (nomina_enc.n_dias - 
+                    nomina_enc.dias_inc_emp - nomina_enc.dias_inc_imss -
+                    nomina_enc.n_faltas - nomina_enc.N_Incapac_SG)
+               nomina_enc.sdo_base_cot = nomina_enc.sbc.
+
+END PROCEDURE.
+
+PROCEDURE tabla_temporal.
+DEF VAR t_van AS INT NO-UNDO.
+DEF VAR t_f1 AS DATE NO-UNDO.
+DEF VAR t_f2 AS DATE NO-UNDO.
+FOR EACH wrk.
+    DELETE wrk.
+END.
+    FOR EACH sueldo OF trabajador NO-LOCK 
+        BY sueldo.f_sueldo DESC.
+        t_f1 = sueldo.f_sueldo.
+        IF t_f1 < trabajador.f_ingreso THEN t_f1 = trabajador.f_ingreso.
+        FIND wrk WHERE
+             wrk.id_trab = trabajador.id_trab AND 
+             wrk.f_ini = t_f1 NO-ERROR.
+        IF NOT AVAILABLE wrk THEN DO:
+            CREATE wrk.
+            ASSIGN wrk.id_trab = trabajador.id_trab
+                   wrk.f_ini = t_f1
+                   wrk.f_fin = 12/31/2021
+                   wrk.id_nivel = sueldo.id_nivel
+                   wrk.sueldo_mes = sueldo.sueldo
+                   wrk.comp_garan = sueldo.comp_garan.
+        END.
+    END.
+
+    t_van = 0.
+    FOR EACH wrk WHERE 
+        wrk.id_trab = trabajador.id_trab
+        BY f_fin DESC.
+        t_van = t_van + 1.
+        IF t_van = 1 THEN DO:
+            t_f1 = wrk.f_ini.
+            wrk.n_dias = wrk.f_fin - wrk.f_ini + 1.
+            NEXT.
+        END.
+        IF t_van > 1 THEN wrk.f_fin = t_f1 - 1.
+        wrk.n_dias = wrk.f_fin - wrk.f_ini + 1.
+        t_f1 = wrk.f_ini.
+    END.
+    IF t_van > 1 THEN DO:
+        FOR EACH wrk WHERE 
+            wrk.id_trab = trabajador.id_trab
+            BY f_fin DESC.
+            /*DISPLAY wrk.*/
+            /*
+            t_ren = t_ren + 1.
+            run pinta(wrk.id_trab,t_ren,1).
+            run pinta(string(wrk.f_ini,'99/99/9999'),t_ren,2).
+            run pinta(string(wrk.f_fin,'99/99/9999'),t_ren,3).
+            run pinta(wrk.id_nivel,t_ren,4).
+            run pinta(wrk.sueldo_mes,t_ren,5).
+            run pinta(wrk.comp_garan,t_ren,6).
+            run pinta(wrk.n_dias,t_ren,7).
+            */
+            /*FOR EACH b_enc OF trabajador WHERE 
+                b_enc.n_nomina > 17 AND
+                b_enc.n_nomina = INT(b_enc.n_nomina) NO-LOCK.
+                IF b_enc.n_faltas + b_enc.dias_inc_emp +
+                   b_enc.dias_inc_imss + b_enc.n_incapac_sg > 0 THEN
+                    run pinta(b_enc.n_nomina,t_ren,8).
+                /*wrk.n_faltas = wrk.n_faltas + b_enc.n_faltas.
+                wrk.dias_inc_emp = wrk.dias_inc_emp + b_enc.dias_inc_emp.
+                wrk.dias_inc_imss = wrk.dias_inc_imss + b_enc.dias_inc_imss.
+                wrk.dias_inc_sg = wrk.dias_inc_sg + b_enc.n_incapac_sg.
+                */
+            END.
+            */
+        END.
+    END.
+END.
+
+{proc_nom.i}.       /*   Hace ceros las variable t_,  busca sueldo, calcula antig.  */
+{calculo_conc.i}.   /*   Cálculo de cada concepto */
+{trae_ks.i}.
+

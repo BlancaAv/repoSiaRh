@@ -1,0 +1,183 @@
+DEF TEMP-TABLE regresado
+    FIELD n_consec AS INT
+    FIELD id_file AS CHAR
+    FIELD hora AS INT
+    FIELD id_trab AS INT
+    FIELD f_final AS CHAR
+    FIELD f_inicial AS CHAR
+    FIELD uuid AS CHAR
+    INDEX regresado n_consec.
+    
+DEF VAR t_arch AS CHAR NO-UNDO.
+DEF VAR t_todo AS CHAR NO-UNDO.
+DEF VAR t_uuid AS CHAR NO-UNDO.
+DEF VAR t_txt AS CHAR NO-UNDO.
+DEF VAR t_van AS INT NO-UNDO.
+DEF VAR t_pasada AS LOG NO-UNDO.
+DEF VAR t_final AS CHAR NO-UNDO.
+DEF VAR t_f_final AS DATE NO-UNDO.
+DEF VAR t_inicial AS CHAR NO-UNDO.
+DEF VAR t_f_inicial AS DATE NO-UNDO.
+DEF VAR t_id_trab AS CHAR NO-UNDO.
+DEF VAR t_dir_xml AS CHAR NO-UNDO INITIAL 'C:\SICOFI\DigiFact\CFDI'.
+DEF VAR t_dir_pdf AS CHAR NO-UNDO INITIAL 'C:\SICOFI\DigiFact\PDF'.
+DEF VAR t_origen AS CHAR NO-UNDO.
+DEF VAR t_destino AS CHAR NO-UNDO.
+DEF VAR t_destino_ant AS CHAR NO-UNDO.
+DEF VAR t_comando AS CHAR NO-UNDO.
+DEF VAR t_folio AS INT NO-UNDO.
+DEF VAR t_folio_txt AS CHAR NO-UNDO.
+DEF VAR t_pos AS INT NO-UNDO.
+DEF VAR t_anio_nom AS INT NO-UNDO.
+DEF VAR t_n_nom AS DEC NO-UNDO.
+
+INPUT FROM OS-DIR(t_dir_xml).
+REPEAT.
+        IMPORT t_arch.
+        IF INDEX(t_arch,'xml') = 0 THEN NEXT.
+        t_van = t_van + 1.
+        FILE-INFO:FILE-NAME = t_dir_xml + '\' + t_arch.
+        CREATE regresado.
+        ASSIGN regresado.n_consec = t_van
+               regresado.id_file = t_arch
+               regresado.hora = FILE-INFO:FILE-MOD-TIME.
+END.
+INPUT CLOSE.
+
+FOR EACH regresado.
+        t_arch = t_dir_xml + '\' + regresado.id_file.
+        t_todo =''.
+        t_pasada = FALSE.
+        INPUT FROM VALUE(t_arch) BINARY NO-CONVERT.
+        REPEAT:
+            IMPORT UNFORMATTED t_txt.
+            IF t_pasada = FALSE THEN DO:
+                IF INDEX(t_txt, ' Folio="') > 0 THEN 
+                    RUN extrae_nomina(t_txt, OUTPUT t_id_trab, OUTPUT t_anio_nom, OUTPUT t_n_nom) .
+                IF INDEX(t_txt,'FechaFinalPago=') > 0 THEN
+                    t_pasada = TRUE.
+                ELSE
+                    NEXT.
+            END.
+            t_todo = t_todo + t_txt.
+        END.
+        INPUT CLOSE.
+        RUN extrae('NumEmpleado', OUTPUT t_id_trab).
+        RUN extrae('UUID', OUTPUT t_uuid).
+        RUN extrae('FechaInicialPago', OUTPUT t_Inicial).
+        t_f_Inicial = DATE(INT(SUBSTRING(t_Inicial,6,2)),INT(SUBSTRING(t_Inicial,9,2)),INT(SUBSTRING(t_Inicial,1,4))).
+        
+        RUN extrae('FechaFinalPago', OUTPUT t_final).
+        t_f_final = DATE(INT(SUBSTRING(t_final,6,2)),INT(SUBSTRING(t_final,9,2)),INT(SUBSTRING(t_final,1,4))).
+        regresado.id_trab = INT(t_id_trab).
+        regresado.f_inicial = t_inicial.
+        regresado.f_final = t_final.
+        regresado.uuid = t_uuid.
+END.
+
+FOR EACH regresado BY f_final BY id_trab BY id_file.
+    PROCESS EVENTS.
+    t_folio = 0.
+    t_folio_txt = SUBSTRING(regresado.id_file, 12).
+    t_pos = INDEX(t_folio_txt,'.').
+    t_folio_txt = SUBSTRING(t_folio_txt,1,t_pos - 1).
+    /*t_folio = INT(t_folio_txt).*/
+    t_origen = t_dir_xml + '\' + regresado.id_file.
+    t_f_inicial = DATE(INT(SUBSTRING(regresado.f_inicial,6,2)),INT(SUBSTRING(regresado.f_inicial,9,2)),INT(SUBSTRING(regresado.f_inicial,1,4))).
+    t_f_final = DATE(INT(SUBSTRING(regresado.f_final,6,2)),INT(SUBSTRING(regresado.f_final,9,2)),INT(SUBSTRING(regresado.f_final,1,4))).
+    FIND calendario_nomina WHERE
+         calendario_nomina.anio_nom = t_anio_nom AND
+         calendario_nomina.n_nomina = t_n_nom NO-LOCK.
+    FIND nomina_enc OF calendario_nomina WHERE
+         nomina_enc.id_trab = INT(t_id_trab).
+    
+    FIND nomina_enc WHERE
+         nomina_enc.uuid = regresado.uuid NO-ERROR.
+    IF NOT AVAILABLE nomina_enc THEN
+        t_destino = 'W:\TIMBRES\' + STRING(calendario_nomina.anio_nom) + '_' +
+                    STRING(calendario_nomina.n_nom * 100) + '_DUP'.
+    ELSE
+        t_destino = 'W:\TIMBRES\' + STRING(calendario_nomina.anio_nom) + '_' +
+                    STRING(calendario_nomina.n_nom * 100).
+
+    IF t_destino_ant <> t_destino THEN
+        OS-COMMAND SILENT VALUE('md ' + t_destino).
+    t_destino_ant = t_destino.
+    
+    t_comando = 'MOVE ' + t_origen + ' ' + t_destino + '\' + STRING(regresado.id_trab,'99999') /*+ '_' + STRING(t_folio,'999999')*/ + '.XML'.
+    OS-COMMAND SILENT VALUE(t_comando).
+    t_txt = SUBSTRING(regresado.id_file,1,INDEX(regresado.id_file,'.')) + 'PDF'.
+    t_origen = t_dir_pdf + '\' + t_txt.
+    t_comando = 'MOVE ' + t_origen + ' ' + t_destino + '\' + STRING(regresado.id_trab,'99999') /*+ '_' + STRING(t_folio,'999999')*/ + '.PDF'.
+    OS-COMMAND SILENT VALUE(t_comando).
+    IF AVAILABLE nomina_enc THEN 
+        nomina_enc.archivo = STRING(regresado.id_trab,'99999'). /* + '_' + STRING(t_folio,'999999').*/
+
+END.
+
+PROCEDURE mueve_duplicado.
+    t_destino = 'W:\TIMBRES\' + STRING(calendario_nomina.anio_nom) + '_' +
+                STRING(calendario_nomina.n_nom * 100) + '_DUP'.
+    IF t_destino_ant <> t_destino THEN
+        OS-COMMAND SILENT VALUE('md ' + t_destino).
+    t_destino_ant = t_destino.
+    t_comando = 'MOVE ' + t_origen + ' ' + t_destino + '\' + STRING(regresado.id_trab,'99999') + '.XML'.
+    OS-COMMAND SILENT VALUE(t_comando).
+    t_txt = SUBSTRING(regresado.id_file,1,INDEX(regresado.id_file,'.')) + 'PDF'.
+    t_origen = t_dir_pdf + '\' + t_txt.
+    t_comando = 'MOVE ' + t_origen + ' ' + t_destino + '\' + STRING(regresado.id_trab,'99999') + '.PDF'.
+    OS-COMMAND SILENT VALUE(t_comando).
+END.
+
+PROCEDURE mueve_ok.
+    PROCESS EVENTS.
+    t_destino = 'W:\TIMBRES\' + STRING(calendario_nomina.anio_nom) + '_' +
+                STRING(calendario_nomina.n_nom * 100).
+    IF t_destino_ant <> t_destino THEN
+        OS-COMMAND SILENT VALUE('md ' + t_destino).
+    t_destino_ant = t_destino.
+    t_comando = 'MOVE ' + t_origen + ' ' + t_destino + '\' + STRING(regresado.id_trab,'99999') + '.XML'.
+    OS-COMMAND SILENT VALUE(t_comando).
+    t_txt = SUBSTRING(regresado.id_file,1,INDEX(regresado.id_file,'.')) + 'PDF'.
+    t_origen = t_dir_pdf + '\' + t_txt.
+    t_comando = 'MOVE ' + t_origen + ' ' + t_destino + '\' + STRING(regresado.id_trab,'99999') + '.PDF'.
+    OS-COMMAND SILENT VALUE(t_comando).
+END.
+
+
+PROCEDURE extrae.
+    DEF INPUT PARAM t_que AS CHAR NO-UNDO.
+    DEF OUTPUT PARAM t_valor AS CHAR NO-UNDO.
+    DEF VAR t_pos1 AS INT NO-UNDO.
+    DEF VAR t_pos2 AS INT NO-UNDO.
+    DEF VAR t_txt AS CHAR NO-UNDO.
+
+    t_valor = ''.
+    t_txt = t_todo.
+    t_pos1 = INDEX(t_txt, t_que).
+    IF t_pos1 = 0 THEN RETURN.
+    t_txt = SUBSTRING(t_txt, t_pos1).
+    t_pos1 = INDEX(t_txt, '"').
+    t_pos2 = INDEX(t_txt, '"', t_pos1 + 1 ).
+    t_valor = SUBSTRING(t_txt, t_pos1 + 1, t_pos2 - t_pos1 - 1).
+    t_valor = REPLACE(t_valor,'/','').
+    t_txt = SUBSTRING(t_txt, t_pos2 + 1).
+END PROCEDURE.
+
+PROCEDURE extrae_nomina.
+    DEF INPUT PARAM t_wrk AS CHAR NO-UNDO.
+    DEF OUTPUT PARAM t_id_trab AS INT NO-UNDO.
+    DEF OUTPUT PARAM t_anio_nom AS INT NO-UNDO.
+    DEF OUTPUT PARAM t_n_nom AS DEC NO-UNDO.
+    DEF VAR t_pos AS INT NO-UNDO.
+
+    t_pos = INDEX(t_wrk, ' Folio="').
+    t_wrk = SUBSTRING(t_wrk,t_pos + 8).
+    t_anio_nom = INT (SUBSTRING(t_wrk,1,4)).
+    t_n_nom = DEC (SUBSTRING(t_wrk,5,4)) / 100.
+    t_id_trab = INT(SUBSTRING(t_wrk,9,5)). 
+    /*MESSAGE t_wrk SKIP
+        t_id_trab SKIP
+        t_anio_nom SKIP
+        t_n_nom VIEW-AS ALERT-BOX.*/
+END.

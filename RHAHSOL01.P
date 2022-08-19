@@ -1,0 +1,83 @@
+/*
+    Reporte de ahorro solidario
+*/
+
+
+DEF INPUT PARAM t_anio AS INT NO-UNDO.
+DEF INPUT PARAM t_n_bim AS INT NO-UNDO.
+
+DEF VAR t_conc_as AS CHAR INITIAL 'D011'.
+
+DEF VAR t_rc AS CHAR NO-UNDO.
+
+DEF VAR t_importe AS DEC NO-UNDO.
+DEF VAR t_aport AS DEC NO-UNDO DECIMALS 2.
+DEF VAR tt_importe AS DEC NO-UNDO.
+DEF VAR tt_aport AS DEC NO-UNDO DECIMALS 2.
+DEF VAR ttt_importe AS DEC NO-UNDO.
+DEF VAR ttt_aport AS DEC NO-UNDO DECIMALS 2.
+
+DEF VAR t_m1 AS INT NO-UNDO.
+DEF VAR t_m2 AS INT NO-UNDO.
+
+t_m1 = (t_n_bim * 2) - 1.
+t_m2 = (t_n_bim * 2).
+{excel.i}.
+RUN abre_excel_xls(SEARCH('RH_ahorro solidario.xlt')).
+
+RUN pinta('Bimestre ' + STRING(t_n_bim) + ' de ' + STRING(t_anio),4,1).
+t_ren = 7.
+
+FOR EACH calendario_nomina NO-LOCK WHERE 
+    calendario_nomina.id_tipo_nomina = 1 AND
+    calendario_nomina.anio_nom = t_anio AND
+    calendario_nomina.mes_nom >= t_m1 AND
+    calendario_nomina.mes_nom <= t_m2,
+    EACH nomina_enc OF calendario_nomina NO-LOCK,
+    EACH nomina_det OF nomina_enc NO-LOCK WHERE
+         nomina_det.id_concepto = t_conc_as
+        BREAK BY nomina_enc.id_clasif
+              BY nomina_enc.id_trab.
+    t_importe = t_importe + nomina_det.importe.
+    IF LAST-OF(nomina_enc.id_trab) THEN DO:
+        FIND trabajador OF nomina_det NO-LOCK.
+        t_aport = t_importe * 3.25.
+        tt_importe = tt_importe + t_importe.
+        tt_aport = tt_aport + t_aport.
+        t_ren = t_ren + 1.
+        RUN pinta(trabajador.ape_pat,t_ren,1).
+        RUN pinta(trabajador.ape_mat,t_ren,2).
+        RUN pinta(trabajador.nombre,t_ren,3).
+        RUN pinta(trabajador.id_trab,t_ren,4).
+        RUN pinta(t_importe,t_ren,5).
+        RUN pinta(t_aport,t_ren,6).
+        t_importe = 0.
+    END.
+    IF LAST-OF(nomina_enc.id_clasif) THEN DO:
+        t_ren = t_ren + 1.
+        RUN pinta('TOTAL ' + nomina_enc.id_clasif,t_ren,1).
+        RUN pinta(tt_importe,t_ren,5).
+        RUN pinta(tt_aport,t_ren,6).
+        ttt_importe = ttt_importe + tt_importe.
+        ttt_aport = ttt_aport + tt_aport.
+        tt_importe = 0.
+        tt_aport = 0.
+        t_rc = 'A' + STRING(t_ren) + ':F' + STRING(t_ren).
+        RUN negras(t_rc).
+        RUN FONT_size_s(t_rc,11).
+        t_ren = t_ren + 1.
+    END.
+    IF LAST(nomina_enc.id_clasif) THEN DO:
+        t_ren = t_ren + 1.
+        RUN pinta('GRAN TOTAL',t_ren,1).
+        RUN pinta(ttt_importe,t_ren,5).
+        RUN pinta(ttt_aport,t_ren,6).
+        ttt_importe = 0.
+        ttt_aport = 0.
+        t_rc = 'A' + STRING(t_ren) + ':F' + STRING(t_ren).
+        RUN negras(t_rc).
+        RUN FONT_size_s(t_rc,11).
+    END.
+END.
+RUN cierra_excel.
+
